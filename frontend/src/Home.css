@@ -1,0 +1,22 @@
+@import url('/landing-pages/secret-pathways-assets/fonts.css');
+
+.icarus-home { position:relative; height:100svh; overflow:hidden; background:#05070a; color:#dfe7e0; font-family:Onest,system-ui,sans-serif; }
+.home-kage-page, .home-kage-page .landing-page-frame { width:100%; height:100%; }
+.home-kicker { font-size:9px; letter-spacing:.16em; color:#aab4ad; }
+.home-primary { min-height:44px; display:inline-flex; align-items:center; gap:32px; padding:12px 18px; border:1px solid #78837c; color:#dfe7e0; background:#0a0e12; cursor:pointer; font:12px Onest,system-ui,sans-serif; }
+.home-primary:hover { border-color:#e0231c; }
+.home-error { position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%); z-index: 9; display: flex; align-items: center; gap: 25px; width: min(500px,calc(100vw - 40px)); padding: 17px 20px; background: #252c2a; border: 1px solid #bb9976; box-shadow: 0 15px 70px #121817; font-size: 12px; line-height: 1.5; }
+.home-error button { margin-left: auto; border: 0; color: #f5e7cf; background: transparent; font-size: 24px; cursor: pointer; }
+.home-memory { width: min(560px,calc(100vw - 36px)); max-height: calc(100svh - 40px); padding: 38px; border: 1px solid #78837c; border-radius: 0; color: #dfe7e0; background: #0a0e12; box-shadow: 0 25px 100px #091415; font-family: Onest,-apple-system,sans-serif; }
+.home-memory::backdrop { background: rgba(11,20,21,.7); backdrop-filter: blur(12px); }
+.home-memory h2 { margin: 0; font: 400 32px/1.15 Onest,system-ui,sans-serif; }
+.home-memory > p:not(.home-kicker) { font-size: 12px; color: #c6ccc3; line-height: 1.7; }
+.memory-close { position: absolute; right: 16px; top: 14px; width: 36px; height: 36px; color: #ded6be; font-size: 25px; border: 0; background: transparent; cursor: pointer; }
+.home-memory label { display: block; font-size: 11px; margin: 24px 0 9px; color: #e5ddc9; }
+.home-memory input, .home-memory textarea { display: block; width: 100%; padding: 12px; color: #dfe7e0; background: #05070a; border: 1px solid rgba(224,216,195,.24); border-radius: 0; resize: vertical; font-size: 12px; line-height: 1.6; }
+.home-memory input::placeholder, .home-memory textarea::placeholder { color: #9da79f; }
+.home-memory .home-primary { margin-top: 25px; }
+.icarus-home button:focus-visible, .home-memory button:focus-visible, .home-memory input:focus-visible, .home-memory textarea:focus-visible { outline: 2px solid #e0231c; outline-offset: 4px; }
+
+.home-error button:focus-visible { outline:2px solid #e0231c; outline-offset:4px; }
+@media(max-width:700px) { .home-memory { padding:30px 24px; } .home-memory h2 { font-size:28px; } }

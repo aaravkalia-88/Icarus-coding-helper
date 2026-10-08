@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "dark-souls-holo-card",
+  "files": [
+    {
+      "path": "src/shaders/dark-souls-holo-card/DarkSoulsHoloCard.tsx",
+      "language": "tsx",
+      "role": "component",
+      "bytes": 3293,
+      "lines": 95,
+      "sha256": "8ec70d08f25b0e10d62afa3fe4cc68415acf67607041307a8e53c34153b997a5"
+    },
+    {
+      "path": "public/landing-pages/dark-souls-holo-card.html",
+      "language": "html",
+      "role": "canonical-source",
+      "bytes": 13199955,
+      "lines": 7910,
+      "sha256": "4373734e87a17720a853e4e6d36df174e0db59d668de2607f5dc9fb5927b109d",
+      "sourceUrl": "/landing-pages/dark-souls-holo-card.html"
+    },
+    {
+      "path": "public/landing-pages/dark-souls-holo-card-cindermane.html",
+      "language": "html",
+      "role": "variant-source",
+      "bytes": 394113,
+      "lines": 7786,
+      "sha256": "a34740e8810600de8e4c15bb96a4b14e177ab8735a84163521c90095403cb150",
+      "sourceUrl": "/landing-pages/dark-souls-holo-card-cindermane.html"
+    },
+    {
+      "path": "src/shaders/threeui.css",
+      "language": "css",
+      "role": "shared-style",
+      "bytes": 40715,
+      "lines": 1775,
+      "sha256": "efe4447139f1358dd8e9be68edf6fa46cbefbd1de423a4d6c439ca61d2c8eccf"
+    }
+  ],
+  "assets": []
+}

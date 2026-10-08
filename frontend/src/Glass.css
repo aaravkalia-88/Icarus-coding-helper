@@ -1,0 +1,77 @@
+:root {
+  --glass-fill: linear-gradient(135deg, rgba(218, 226, 239, .14), rgba(49, 53, 66, .42) 45%, rgba(18, 22, 32, .56));
+  --glass-edge: rgba(225, 234, 247, .28);
+  --glass-shadow: inset 0 1px 1px rgba(255, 255, 255, .3), inset 0 -1px 1px rgba(200, 219, 255, .1), 0 8px 24px rgba(0, 0, 0, .24);
+}
+
+:is(.icarus-landing, .app-shell, .popup-shell) button {
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: var(--glass-fill);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  color: #f5eee0;
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+:is(.icarus-landing, .app-shell, .popup-shell) button:hover:not(:disabled) {
+  border-color: rgba(246, 215, 166, .65);
+  background: linear-gradient(135deg, rgba(251, 224, 184, .24), rgba(86, 73, 53, .45), rgba(27, 29, 40, .66));
+  box-shadow: var(--glass-shadow), 0 0 20px rgba(215, 154, 74, .12);
+}
+:is(.icarus-landing, .app-shell, .popup-shell) button:focus-visible {
+  outline: 2px solid #ffd38a;
+  outline-offset: 3px;
+}
+:is(.icarus-landing, .app-shell, .popup-shell) button:disabled { opacity: .45; cursor: not-allowed; }
+.settings-close { min-width: 44px; min-height: 44px; border-radius: 50% !important; }
+.icarus-settings { border-radius: 28px; background: rgba(12, 15, 22, .65); backdrop-filter: blur(28px); border-color: var(--glass-edge); }
+.icarus-settings::backdrop { background: rgba(3, 5, 9, .56); backdrop-filter: blur(6px); }
+.icarus-settings .app-shell { background: rgba(9, 12, 18, .52); }
+.icarus-settings .app-shell::before {
+  inset: -12px;
+  opacity: .32;
+  background: linear-gradient(rgba(8, 12, 20, .38), rgba(8, 12, 20, .85)), url('/icarus-artwork.png') center 64% / cover;
+  mask-image: none;
+  filter: blur(3px) saturate(.75);
+}
+.icarus-settings .app-shell::after { display: none; }
+:is(.icarus-settings, .popup-shell) :is(.engine-panel, .provider-panel, .workflow-hint, .popup-panel) {
+  background: var(--glass-fill);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow), 0 22px 65px rgba(0, 0, 0, .25);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+.engine-panel-top, .engine-panel-bottom, .popup-header { background: rgba(255, 255, 255, .025); }
+.provider-panel .provider-manage { display: flex; margin-top: 16px; }
+.workflow-hint { flex-wrap: wrap; }
+.icarus-settings .workflow-glass { flex: 1 0 100%; height: 180px; min-height: 180px; border-radius: 18px; }
+.settings-loading { padding: 40px; color: #e4d5bb; }
+.popup-shell .popup-panel { position: relative; isolation: isolate; background: rgba(20, 25, 35, .72); }
+.popup-panel::after {
+  content: ''; position: absolute; z-index: -1; inset: -12px;
+  background: linear-gradient(rgba(9, 13, 20, .65), rgba(9, 13, 20, .86)), url('/icarus-artwork.png') center 65% / cover;
+  filter: blur(4px) saturate(.65); pointer-events: none;
+}
+.popup-context { gap: 7px; }
+.popup-context > span:nth-child(2) { flex: 1; }
+.popup-code-button { flex: none; padding: 5px 8px; font-size: 10px; cursor: pointer; }
+.popup-menu { display: grid; gap: 4px; padding-top: 4px; }
+.popup-command { height: 32px; min-height: 32px; }
+.popup-command--active { border-color: rgba(249, 207, 151, .6) !important; }
+.popup-panel .popup-close { border-radius: 50%; }
+.popup-primary { color: #fff4e1 !important; }
+.popup-ask textarea, .provider-entry input, .popup-answer {
+  background: rgba(12, 17, 25, .42);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .1);
+  backdrop-filter: blur(12px);
+}
+.popup-ask textarea:focus-visible, .provider-entry input:focus-visible { border-color: #ffd38a; outline: 2px solid rgba(255, 211, 138, .2); }
+.popup-answer { border: 1px solid var(--glass-edge); border-radius: 14px; padding: 12px; }
+.popup-ask textarea#icarus-code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (prefers-contrast: more) {
+  :is(.icarus-landing, .app-shell, .popup-shell) button, :is(.icarus-settings, .popup-shell) :is(.engine-panel, .provider-panel, .workflow-hint, .popup-panel) { background: #202631; border-color: #b6c1d0; }
+  .icarus-settings .app-shell::before, .popup-panel::after { display: none; }
+}

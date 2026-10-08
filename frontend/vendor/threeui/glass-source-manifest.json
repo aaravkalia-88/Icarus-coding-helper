@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "glass-ai-button",
+  "files": [
+    {
+      "path": "src/shaders/glass-ai-button/GlassAiButton.tsx",
+      "language": "tsx",
+      "role": "component",
+      "bytes": 2455,
+      "lines": 83,
+      "sha256": "1a11cd583e856d3be328a0192be4d77184607c64721f3fb646bd6d61436b2104"
+    },
+    {
+      "path": "src/shaders/glass-ai-button/sources/glass-ai-button.html",
+      "language": "html",
+      "role": "canonical-source",
+      "bytes": 739766,
+      "lines": 424,
+      "sha256": "a484571de316c05ab7fbd2da82da5e028ee1ffe0bd169449fb8a3c7801abd81e"
+    },
+    {
+      "path": "src/shaders/threeui.css",
+      "language": "css",
+      "role": "shared-style",
+      "bytes": 40715,
+      "lines": 1775,
+      "sha256": "efe4447139f1358dd8e9be68edf6fa46cbefbd1de423a4d6c439ca61d2c8eccf"
+    }
+  ],
+  "assets": []
+}

@@ -1,0 +1,42 @@
+{
+  "name": "icarus-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && npm run build:electron && npm run build:native",
+    "build:electron": "vite build --config electron/vite.config.mjs",
+    "build:native": "mkdir -p dist-native /private/tmp/icarus-swift-modules && { if [ ! -x dist-native/icarus-keychain ] || ! shasum -a 256 -c dist-native/keychain.sha256 >/dev/null 2>&1; then swiftc -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk -module-cache-path /private/tmp/icarus-swift-modules native/keychain.swift -o dist-native/icarus-keychain && shasum -a 256 native/keychain.swift > dist-native/keychain.sha256; fi; } && swiftc -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk -module-cache-path /private/tmp/icarus-swift-modules native/selection.swift -o dist-native/icarus-selection",
+    "start": "npm run build && electron .",
+    "test": "node --test electron/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --ignore-pattern 'vendor/**' --ignore-pattern 'public/vendor/**'",
+    "preview": "vite preview",
+    "prepare:scene": "node scripts/prepare-scene.mjs",
+    "predev": "npm run prepare:scene",
+    "prebuild": "npm run prepare:scene",
+    "test:scene": "node scripts/verify-scene.mjs",
+    "test:home": "node scripts/verify-home.mjs",
+    "test:modes": "node scripts/verify-mode-design.mjs",
+    "test:popup": "node scripts/verify-popup.mjs"
+  },
+  "dependencies": {
+    "framer-motion": "^13.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "thinking-orbs": "^0.3.2",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.5.1",
+    "oxlint": "^1.81.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}

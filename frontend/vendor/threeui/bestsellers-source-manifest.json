@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "bestsellers-book-showcase",
+  "files": [
+    {
+      "path": "src/shaders/landing-pages/LandingPages.tsx",
+      "language": "tsx",
+      "role": "component",
+      "bytes": 40525,
+      "lines": 915,
+      "sha256": "4d379461ad00eb4de7900df312878035383de7e1ed4e13283b8143a2eea9d30a"
+    },
+    {
+      "path": "src/shaders/landing-pages/LandingPageFrame.tsx",
+      "language": "tsx",
+      "role": "frame-component",
+      "bytes": 6756,
+      "lines": 177,
+      "sha256": "61de2cc50888aac4ac5557420b07fa47ed3543bb57c1e0055fafdefa53dbaa78"
+    },
+    {
+      "path": "public/landing-pages/bestsellers-book-showcase.html",
+      "language": "html",
+      "role": "canonical-source",
+      "bytes": 3546441,
+      "lines": 1871,
+      "sha256": "7c1ed1ca4a4c58f1c33956c84edd8f7ba450ea0312df718701e634a207568138",
+      "sourceUrl": "/landing-pages/bestsellers-book-showcase.html"
+    },
+    {
+      "path": "src/shaders/threeui.css",
+      "language": "css",
+      "role": "shared-style",
+      "bytes": 40715,
+      "lines": 1775,
+      "sha256": "efe4447139f1358dd8e9be68edf6fa46cbefbd1de423a4d6c439ca61d2c8eccf"
+    }
+  ],
+  "assets": [],
+  "retrieval": {
+    "canonicalUrl": "https://threeui.com/landing-pages/bestsellers-book-showcase.html",
+    "bundleUrl": "https://threeui.com/source-code/bestsellers-book-showcase.json",
+    "note": "Hosted HTML externalized six embedded media URLs. Restoring the hash-named asset bytes as data URIs recovers the registered canonical SHA-256 exactly."
+  }
+}
