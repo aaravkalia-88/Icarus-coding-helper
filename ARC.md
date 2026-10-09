@@ -42,7 +42,7 @@ flowchart TD
 
 ## Python API
 
-`backend/main.py` binds to loopback when launched by Electron. Electron generates a per-session token, sends it over stdin, and authenticates every API request.
+`backend/main.py` binds to loopback when launched by Electron. Electron generates a per-session token, sends it over stdin, and authenticates every API request. API responses carry `Cache-Control: no-store`. Authenticated JSON request bodies are bounded to 2 MiB while reading, including chunked requests; oversized bodies return HTTP 413 before validation or storage.
 
 | Endpoint | Implemented behavior |
 | --- | --- |
@@ -55,7 +55,7 @@ flowchart TD
 
 `backend/modes.py` supplies educational prompts for the eight modes and automatic selection analysis. Requests may include a project description, explicitly selected saved notes, a mentor mood, and up to three preceding user/assistant exchanges.
 
-`backend/providers.py` implements Ollama and OpenAI-compatible adapters for LM Studio, Hugging Face, and OpenAI. Destinations are fixed, environment proxies and redirects are disabled, and requests have bounded timeouts. Interrupted streams, invalid or empty answers, response limits, filtering, and unsupported actions return safe failure messages. Model requests are not retried automatically.
+`backend/providers.py` implements Ollama and OpenAI-compatible adapters for LM Studio, Hugging Face, and OpenAI. Destinations are fixed, environment proxies and redirects are disabled. Generation has a 120-second total deadline alongside HTTP timeouts; connection probes have 15 seconds, below the desktop's 20-second request timeout. A connection-probe body or stream line is limited to 1 MiB, and a complete stream to 8 MiB, including ignored metadata. Providers receive `Accept-Encoding: identity`; unsolicited compressed responses are rejected before decompression. Interrupted streams, invalid or empty answers, response limits, filtering, and unsupported actions return safe failure messages. Model requests are not retried automatically.
 
 ## Response lifecycle
 
@@ -67,7 +67,7 @@ Diagnostics include the operation, exception type, and stack locations without e
 
 ## Storage and trust boundaries
 
-`backend/storage.py` stores settings and project notes in a `state` table and keeps up to 50 rows in `history`. Access uses a lock and transactions; file permissions are restricted. History input/output is redacted. History writes remain best effort: a failed write is diagnosed without discarding the delivered answer.
+`backend/storage.py` stores settings and project notes in a `state` table and keeps up to 50 rows in `history`. Access uses a lock and transactions; new and existing database files are restricted to mode `0600` before SQLite opens them. Existing data is preserved. History input/output is redacted, including recognized credentials in quoted JSON fields and prefixed environment variable names. Redaction is heuristic; stored notes and history are not encrypted. History writes remain best effort: a failed write is diagnosed without discarding the delivered answer.
 
 Provider tokens are managed by `frontend/electron/keychain.ts` and `frontend/native/keychain.swift`. They are supplied to the authenticated backend only when needed and are not stored in SQLite or renderer storage. The selection helper reads external highlighted text following explicit user invocation; manual paste is also supported.
 

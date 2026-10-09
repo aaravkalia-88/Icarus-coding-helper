@@ -8,7 +8,7 @@ See [the implemented architecture](ARC.md), [product plans](PRO.md), and [design
 
 ## Setup and launch
 
-The desktop app requires macOS, Node.js/npm, Python, and Xcode Command Line Tools. The native build uses the active macOS SDK selected by `xcrun`. Verification used Node.js 24 and Python 3.14; other toolchain versions have not been verified.
+The desktop app requires macOS, Node.js/npm, Python 3.11 or newer, and Xcode Command Line Tools. The native build uses the active macOS SDK selected by `xcrun`. Verification used Node.js 24 and Python 3.14; other toolchain versions have not been verified.
 
 ```sh
 python3 -m venv .venv
@@ -29,6 +29,8 @@ Stop with **Ctrl+C** or `./stop.sh`. `./start_web.sh` and `./stop_web.sh` run on
 Open Model connection, choose a provider and model ID, then use **Test & save connection**. Remote providers require a token; local servers must already be running. Tokens stay in macOS Keychain and are never returned to the renderer. Grant the selection helper Accessibility access in macOS settings to capture highlighted text, or paste code into the panel.
 
 Submitted code, explicitly selected project context, and follow-up exchanges go to the selected provider. Recognized secrets are redacted before remote requests, but redaction is best effort. The app displays AI output as text and does not execute generated code or automatically replace editor contents.
+
+The Python service accepts authenticated request bodies up to 2 MiB and marks API responses `no-store`. Generation has a 120-second total deadline; connection probes have 15 seconds. Provider responses are limited to 1 MiB per line or connection-probe body and 8 MiB per stream. Partial answers survive an interrupted request. SQLite files are restricted to the current user before opening; project notes and history remain unencrypted local data.
 
 ## Verification
 
