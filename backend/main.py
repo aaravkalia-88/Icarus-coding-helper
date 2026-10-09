@@ -9,8 +9,9 @@ import traceback
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 import httpx
@@ -28,7 +29,31 @@ else:
     from redaction import redact
     from storage import LocalStore
 
+MAX_REQUEST_BYTES = 2 * 1024 * 1024
+
+
+class BoundedRequest(Request):
+    async def stream(self):
+        size = 0
+        async for chunk in super().stream():
+            size += len(chunk)
+            if size > MAX_REQUEST_BYTES:
+                raise HTTPException(status_code=413, detail="Request too large")
+            yield chunk
+
+
+class BoundedRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def bounded(request: Request):
+            return await handler(BoundedRequest(request.scope, request.receive))
+
+        return bounded
+
+
 app = FastAPI()
+app.router.route_class = BoundedRoute
 session_token: str | None = None
 store = LocalStore()
 REMOTE_PROVIDERS = ("openai", "huggingface")
@@ -48,12 +73,15 @@ async def authenticate(request: Request, call_next):
     if not session_token or not secrets.compare_digest(
         authorization.encode(), f"Bearer {session_token}".encode()
     ):
-        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-    try:
-        return await call_next(request)
-    except Exception as error:
-        # Handle before Uvicorn can log an unsanitized exception message.
-        return await unexpected_error(request, error)
+        response = JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    else:
+        try:
+            response = await call_next(request)
+        except Exception as error:
+            # Handle before Uvicorn can log an unsanitized exception message.
+            response = await unexpected_error(request, error)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health")
@@ -256,6 +284,10 @@ async def chat_stream(request: ChatRequest):
             log_failure("Generation", error)
             status = "error"
             terminal = sse("error", {"message": "Model unavailable"})
+        except TimeoutError as error:
+            log_failure("Generation", error)
+            status = "error"
+            terminal = sse("error", {"message": STREAM_ERRORS["interrupted"]})
         except ProviderResponseError as error:
             log_failure("Generation", error)
             status = "error"

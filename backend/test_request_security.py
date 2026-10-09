@@ -92,10 +92,6 @@ def test_provider_deadline_preserves_partial_answer_with_safe_recovery(api, monk
     response = api.post("/v1/chat/stream", headers=HEADERS, json={
         "mode": "ask_icarus", "provider": "ollama", "model": "fixture", "prompt": "fixture"})
     assert "partial answer" in response.text and "event: error" in response.text
-    assert providers_message() in response.text
+    assert "Model response was interrupted. Retry to complete the answer." in response.text
     assert "private-fixture-timeout" not in response.text
     assert main.store.history()[0]["status"] == "error"
-
-
-def providers_message():
-    return "Model response was interrupted. Retry to complete the answer."

@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 import json
 from typing import AsyncIterator, Literal, Protocol
 
@@ -6,6 +8,9 @@ import httpx
 ProviderName = Literal["ollama", "lm_studio", "openai", "huggingface"]
 Messages = list[dict[str, str]]
 TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
+PROVIDER_DEADLINE = 120.0
+MAX_LINE_BYTES = 1024 * 1024
+MAX_STREAM_BYTES = 8 * 1024 * 1024
 HUGGINGFACE_URL = "https://router.huggingface.co/v1/chat/completions"
 QWEN_MODEL = "Qwen/Qwen3.8-27B"
 STREAM_ERRORS = {
@@ -26,6 +31,70 @@ class ProviderResponseError(ValueError):
         self.reason = reason
 
 
+@asynccontextmanager
+async def provider_response(method: str, url: str, **kwargs):
+    deadline = asyncio.get_running_loop().time() + PROVIDER_DEADLINE
+    async with httpx.AsyncClient(timeout=TIMEOUT, trust_env=False, follow_redirects=False,
+                                 headers={"Accept-Encoding": "identity"}) as client:
+        async with asyncio.timeout_at(deadline):
+            response = await client.send(client.build_request(method, url, **kwargs), stream=True)
+        try:
+            response.raise_for_status()
+            # Reject unsolicited compression before HTTPX can expand untrusted bytes.
+            if response.headers.get("content-encoding", "identity").strip().lower() not in ("", "identity"):
+                raise ProviderResponseError("invalid")
+            yield response, deadline
+        finally:
+            await response.aclose()
+
+
+async def bounded_chunks(response, deadline, limit):
+    size = 0
+    chunks = response.aiter_bytes().__aiter__()
+    while True:
+        try:
+            async with asyncio.timeout_at(deadline):
+                chunk = await anext(chunks)
+        except StopAsyncIteration:
+            return
+        size += len(chunk)
+        if size > limit:
+            raise ProviderResponseError("oversized")
+        yield chunk
+
+
+async def response_json(response, deadline):
+    content = bytearray()
+    async for chunk in bounded_chunks(response, deadline, MAX_LINE_BYTES):
+        content.extend(chunk)
+    return json.loads(content)
+
+
+async def response_lines(response, deadline):
+    pending = bytearray()
+    skip_lf = False
+    async for chunk in bounded_chunks(response, deadline, MAX_STREAM_BYTES):
+        if not chunk:
+            continue
+        if skip_lf and chunk.startswith(b"\n"):
+            chunk = chunk[1:]
+        skip_lf = chunk.endswith(b"\r")
+        pending.extend(chunk)
+        lines = pending.splitlines(keepends=True)
+        pending.clear()
+        for line in lines:
+            complete = line.endswith((b"\r", b"\n"))
+            line = line.rstrip(b"\r\n") if complete else line
+            if len(line) > MAX_LINE_BYTES:
+                raise ProviderResponseError("oversized")
+            if complete:
+                yield line.decode("utf-8")
+            else:
+                pending.extend(line)
+    if pending:
+        yield pending.decode("utf-8")
+
+
 def check_finish(reason):
     if reason not in (None, "stop"):
         code = "limit" if reason == "length" else "filtered" if reason == "content_filter" else "unsupported"
@@ -39,20 +108,17 @@ class AIProvider(Protocol):
 
 class OllamaProvider:
     async def test(self, model: str, api_key: str | None):
-        async with httpx.AsyncClient(timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
-            response = await client.get("http://127.0.0.1:11434/api/tags")
-            response.raise_for_status()
-            if not any(item.get("name") in (model, model + ":latest") for item in response.json().get("models", [])):
+        async with provider_response("GET", "http://127.0.0.1:11434/api/tags") as (response, deadline):
+            payload = await response_json(response, deadline)
+            if not any(item.get("name") in (model, model + ":latest") for item in payload.get("models", [])):
                 raise ProviderResponseError("unavailable")
 
     async def stream(self, messages: Messages, model: str, api_key: str | None) -> AsyncIterator[str]:
-        async with httpx.AsyncClient(timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
-            async with client.stream(
+        async with provider_response(
                 "POST", "http://127.0.0.1:11434/api/chat",
                 json={"model": model, "messages": messages, "stream": True},
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
+            ) as (response, deadline):
+                async for line in response_lines(response, deadline):
                     if not line:
                         continue
                     item = json.loads(line)
@@ -78,14 +144,12 @@ class OpenAICompatibleProvider:
 
     async def test(self, model: str, api_key: str | None):
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        async with httpx.AsyncClient(timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
-            limit = 'max_completion_tokens' if self.url.startswith('https://api.openai.com/') else 'max_tokens'
-            response = await client.post(self.url, headers=headers, json={
+        limit = 'max_completion_tokens' if self.url.startswith('https://api.openai.com/') else 'max_tokens'
+        async with provider_response("POST", self.url, headers=headers, json={
                 "model": model, "messages": [{"role": "user", "content": "Reply OK."}],
                 "stream": False, limit: 16,
-            })
-            response.raise_for_status()
-            payload = response.json()
+            }) as (response, deadline):
+            payload = await response_json(response, deadline)
             if not isinstance(payload, dict) or payload.get("error"):
                 raise ProviderResponseError("invalid")
             choices = payload.get("choices")
@@ -100,13 +164,11 @@ class OpenAICompatibleProvider:
             raise ValueError("Remote API key required")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         payload = {"model": model, "messages": messages, "stream": True}
-        async with httpx.AsyncClient(timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
-            async with client.stream(
+        async with provider_response(
                 "POST", self.url, headers=headers,
                 json=payload,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
+            ) as (response, deadline):
+                async for line in response_lines(response, deadline):
                     if not line.startswith("data:"):
                         continue
                     data = line[5:].strip()
