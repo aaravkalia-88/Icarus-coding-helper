@@ -63,3 +63,27 @@ def test_redaction_covers_common_key_shapes_and_preserves_surrounding_code():
         assert secret not in cleaned
     assert cleaned.startswith("before ")
     assert cleaned.endswith("\nafter")
+
+
+@pytest.mark.parametrize("prefix,suffix", [
+    ('"api_key": "', '"'),
+    ("'access_token': '", "'"),
+    ('SERVICE_API_KEY="', '"'),
+    ("SERVICE_ACCESS_TOKEN=", ""),
+    ("SERVICE_SECRET_KEY=", ""),
+])
+def test_redaction_covers_quoted_keys_and_prefixed_environment_names(prefix, suffix):
+    from backend.redaction import redact
+
+    secret = "genericCredentialValue1234567890"
+    source = "before\n" + prefix + secret + suffix + "\nafter"
+
+    assert redact(source) == "before\n" + prefix + "[REDACTED CREDENTIAL]" + suffix + "\nafter"
+
+
+def test_redaction_preserves_ordinary_assignments_and_already_redacted_values():
+    from backend.redaction import redact
+
+    source = 'cache_key = "ordinaryCacheIdentifier1234567890"\napi_key = "[REDACTED CREDENTIAL]"'
+
+    assert redact(source) == source
