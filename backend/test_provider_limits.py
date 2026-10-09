@@ -80,7 +80,7 @@ def test_unsolicited_compressed_provider_response_is_rejected(monkeypatch):
 
 @pytest.mark.parametrize("operation", ["stream", "test"])
 def test_continuous_upstream_activity_cannot_exceed_total_deadline(monkeypatch, operation):
-    monkeypatch.setattr(providers, "PROVIDER_DEADLINE", 0.02, raising=False)
+    monkeypatch.setattr(providers, "PROBE_DEADLINE" if operation == "test" else "PROVIDER_DEADLINE", 0.02, raising=False)
     chunks = ([b": heartbeat\n"] * 20 + [b"data: [DONE]\n"] if operation == "stream" else
               [b" "] * 20 + [b'{"choices":[{"message":{"content":"OK"}}]}'])
     stream = Chunks(chunks, delay=0.005)
@@ -90,6 +90,28 @@ def test_continuous_upstream_activity_cannot_exceed_total_deadline(monkeypatch, 
             collect("openai")
         else:
             asyncio.run(providers.get_provider("openai").test("fixture", "fixture-token"))
+    assert stream.closed
+
+
+@pytest.mark.parametrize("operation", ["stream", "test"])
+def test_ready_upstream_data_cannot_skip_expired_deadline(monkeypatch, operation):
+    monkeypatch.setattr(providers, "PROBE_DEADLINE" if operation == "test" else "PROVIDER_DEADLINE", 0, raising=False)
+    body = (b'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n' if operation == "stream" else
+            b'{"choices":[{"message":{"content":"OK"}}]}')
+    stream = Chunks([body])
+    upstream(monkeypatch, stream)
+    with pytest.raises(TimeoutError):
+        if operation == "stream":
+            collect("openai")
+        else:
+            asyncio.run(providers.get_provider("openai").test("fixture", "fixture-token"))
+
+
+def test_fragmented_oversized_line_is_rejected(monkeypatch):
+    stream = Chunks([b'data: {"ignored":"'] + [b"x" * 65536] * 17 + [b'"}\n'])
+    upstream(monkeypatch, stream)
+    with pytest.raises(providers.ProviderResponseError):
+        collect("openai")
     assert stream.closed
 
 
