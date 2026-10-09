@@ -95,7 +95,7 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
   }
 })
 
-test('normal builds preserve the trusted Keychain helper until its source changes', async () => {
+test('native builds use the active macOS SDK and preserve the trusted Keychain helper', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'icarus-stable-keychain-'))
   try {
     await mkdir(path.join(directory, 'native'))
@@ -108,11 +108,15 @@ test('normal builds preserve the trusted Keychain helper until its source change
     await writeFile(compiler, `#!${process.execPath}
 const fs = require('node:fs')
 const args = process.argv.slice(2)
+require('node:assert/strict').equal(args[args.indexOf('-sdk') + 1], '/fixture macOS SDK')
 const output = args[args.indexOf('-o') + 1]
 fs.appendFileSync('calls', output + '\\n')
 fs.writeFileSync(output, 'fixture executable', { mode: 0o700 })
 `)
     await chmod(compiler, 0o700)
+    const xcrun = path.join(directory, 'bin/xcrun')
+    await writeFile(xcrun, '#!/bin/sh\n[ "$*" = "--sdk macos --show-sdk-path" ] || exit 2\nprintf "%s\\n" "/fixture macOS SDK"\n')
+    await chmod(xcrun, 0o700)
     const options = { cwd: directory, env: { ...process.env, PATH: `${directory}/bin:${process.env.PATH}` } }
     await execute('npm', ['run', 'build:native'], options)
     await execute('npm', ['run', 'build:native'], options)
@@ -122,6 +126,10 @@ fs.writeFileSync(output, 'fixture executable', { mode: 0o700 })
     await appendFile(path.join(directory, 'native/keychain.swift'), '\n// changed source')
     await execute('npm', ['run', 'build:native'], options)
     assert.equal(await compilations(), 2, 'a changed helper must still be rebuilt')
+    const calls = await readFile(path.join(directory, 'calls'), 'utf8')
+    await writeFile(xcrun, '#!/bin/sh\nexit 7\n')
+    await assert.rejects(execute('npm', ['run', 'build:native'], options), 'a missing SDK must stop the build')
+    assert.equal(await readFile(path.join(directory, 'calls'), 'utf8'), calls, 'SDK discovery failure must not replace any helper')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

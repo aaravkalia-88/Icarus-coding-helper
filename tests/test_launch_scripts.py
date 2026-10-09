@@ -24,7 +24,8 @@ from pathlib import Path
 assert sys.argv[1:] == json.loads(os.environ["TEST_NPM_ARGS"]), sys.argv
 record = Path(os.environ["TEST_RECORD"])
 with record.open("a") as stream:
-    stream.write(json.dumps({"pid": os.getpid(), "cwd": os.getcwd()}) + "\n")
+    stream.write(json.dumps({"pid": os.getpid(), "cwd": os.getcwd(),
+                             "python": os.environ.get("ICARUS_PYTHON")}) + "\n")
 mode = os.environ.get("TEST_MODE", "running")
 if mode == "exit":
     sys.exit(int(os.environ.get("TEST_EXIT_CODE", "0")))
@@ -136,6 +137,35 @@ class LaunchScriptsTest(unittest.TestCase):
         output, _ = process.communicate(timeout=5)
         self.assertEqual(process.returncode, 23, output)
         self.assertFalse(self.pid_file.exists())
+
+    def test_project_python_is_selected_only_for_desktop_and_keeps_overrides(self):
+        self.env.pop("ICARUS_PYTHON", None)
+        self.env.pop("VIRTUAL_ENV", None)
+        python = self.project / ".venv" / "bin" / "python3"
+        for label, override, active, expected in (
+            ("system fallback", None, None, None),
+            ("project environment", None, None, str(python)),
+            ("explicit interpreter", "/fixture/custom-python", None, "/fixture/custom-python"),
+            ("activated environment", None, "/fixture/active-venv", None),
+        ):
+            with self.subTest(label=label):
+                if label == "project environment":
+                    python.parent.mkdir(parents=True)
+                    python.write_text("#!/bin/sh\nexit 0\n")
+                    python.chmod(0o755)
+                self.env.pop("ICARUS_PYTHON", None)
+                self.env.pop("VIRTUAL_ENV", None)
+                if override:
+                    self.env["ICARUS_PYTHON"] = override
+                if active:
+                    self.env["VIRTUAL_ENV"] = active
+                process = self.start("exit")
+                output, _ = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 0, output)
+                if self.start_script == "start_web.sh":
+                    expected = override
+                record = json.loads(self.record.read_text().splitlines()[-1])
+                self.assertEqual(record["python"], expected)
 
     def test_stop_is_repeatable_and_stops_descendants(self):
         process = self.start()
