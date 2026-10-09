@@ -59,7 +59,7 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
     const source = path.join(directory, 'fixture.swift')
     const executable = path.join(directory, 'fixture')
     await writeFile(source, fixture + await readFile(path.join(root, 'native/keychain.swift'), 'utf8'))
-    const { stdout: sdk } = await execute('xcrun', ['--sdk', 'macos', '--show-sdk-path'])
+    const { stdout: sdk } = await execute('xcrun', ['--sdk', 'macosx', '--show-sdk-path'])
     await execute('swiftc', ['-sdk', sdk.trim(),
       '-module-cache-path', path.join(directory, 'modules'), source, '-o', executable])
     const run = async (operation, provider, env = process.env) => {
@@ -116,7 +116,7 @@ fs.writeFileSync(output, 'fixture executable', { mode: 0o700 })
 `)
     await chmod(compiler, 0o700)
     const xcrun = path.join(directory, 'bin/xcrun')
-    await writeFile(xcrun, '#!/bin/sh\n[ "$*" = "--sdk macos --show-sdk-path" ] || exit 2\nprintf "%s\\n" "/fixture macOS SDK"\n')
+    await writeFile(xcrun, '#!/bin/sh\n[ "$*" = "--sdk macosx --show-sdk-path" ] || exit 2\nprintf "%s\\n" "/fixture macOS SDK"\n')
     await chmod(xcrun, 0o700)
     const options = { cwd: directory, env: { ...process.env, PATH: `${directory}/bin:${process.env.PATH}` } }
     await execute('npm', ['run', 'build:native'], options)
