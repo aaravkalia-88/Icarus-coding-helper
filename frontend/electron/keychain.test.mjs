@@ -59,7 +59,8 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
     const source = path.join(directory, 'fixture.swift')
     const executable = path.join(directory, 'fixture')
     await writeFile(source, fixture + await readFile(path.join(root, 'native/keychain.swift'), 'utf8'))
-    await execute('swiftc', ['-sdk', '/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk',
+    const { stdout: sdk } = await execute('xcrun', ['--sdk', 'macos', '--show-sdk-path'])
+    await execute('swiftc', ['-sdk', sdk.trim(),
       '-module-cache-path', path.join(directory, 'modules'), source, '-o', executable])
     const run = async (operation, provider, env = process.env) => {
       const child = execFile(executable, [operation, provider], { timeout: 1000, env })

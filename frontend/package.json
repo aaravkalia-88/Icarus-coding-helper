@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build && npm run build:electron && npm run build:native",
     "build:electron": "vite build --config electron/vite.config.mjs",
-    "build:native": "mkdir -p dist-native /private/tmp/icarus-swift-modules && { if [ ! -x dist-native/icarus-keychain ] || ! shasum -a 256 -c dist-native/keychain.sha256 >/dev/null 2>&1; then swiftc -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk -module-cache-path /private/tmp/icarus-swift-modules native/keychain.swift -o dist-native/icarus-keychain && shasum -a 256 native/keychain.swift > dist-native/keychain.sha256; fi; } && swiftc -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk -module-cache-path /private/tmp/icarus-swift-modules native/selection.swift -o dist-native/icarus-selection",
+    "build:native": "sdk_path=$(xcrun --sdk macos --show-sdk-path) && mkdir -p dist-native /private/tmp/icarus-swift-modules && { if [ ! -x dist-native/icarus-keychain ] || ! shasum -a 256 -c dist-native/keychain.sha256 >/dev/null 2>&1; then swiftc -sdk \"$sdk_path\" -module-cache-path /private/tmp/icarus-swift-modules native/keychain.swift -o dist-native/icarus-keychain && shasum -a 256 native/keychain.swift > dist-native/keychain.sha256; fi; } && swiftc -sdk \"$sdk_path\" -module-cache-path /private/tmp/icarus-swift-modules native/selection.swift -o dist-native/icarus-selection",
     "start": "npm run build && electron .",
     "test": "node --test electron/*.test.mjs",
     "typecheck": "tsc --noEmit",

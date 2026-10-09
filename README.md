@@ -8,7 +8,7 @@ See [the implemented architecture](ARC.md), [product plans](PRO.md), and [design
 
 ## Setup and launch
 
-The desktop app requires macOS, Node.js/npm, Python, and Xcode Command Line Tools. The current native build references the **MacOSX26.5 SDK**. Verification used Node.js 24 and Python 3.14; other toolchain versions have not been verified.
+The desktop app requires macOS, Node.js/npm, Python, and Xcode Command Line Tools. The native build uses the active macOS SDK selected by `xcrun`. Verification used Node.js 24 and Python 3.14; other toolchain versions have not been verified.
 
 ```sh
 python3 -m venv .venv
@@ -20,7 +20,7 @@ cd ..
 ./start.sh
 ```
 
-The launcher builds the renderer, Electron shell, and Swift helpers. Electron starts its own authenticated local Python service. Keep the Python environment active, or set `ICARUS_PYTHON` to the interpreter containing the backend dependencies.
+The launcher builds the renderer, Electron shell, and Swift helpers. Electron starts its own authenticated local Python service. `start.sh` uses the project's `.venv/bin/python3` when available, preserves an already active Python environment, and honors `ICARUS_PYTHON` when you set it explicitly. Otherwise it uses `python3` from your PATH.
 
 Stop with **Ctrl+C** or `./stop.sh`. `./start_web.sh` and `./stop_web.sh` run only the browser UI on localhost. Native shortcuts, selection capture, Keychain, and model requests require the desktop app.
 

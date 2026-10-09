@@ -29,6 +29,11 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 127
 fi
 
+if [[ "${1:-}" != --web && -z "${ICARUS_PYTHON:-}" && -z "${VIRTUAL_ENV:-}" &&
+      -x "$SCRIPT_DIR/.venv/bin/python3" ]]; then
+  export ICARUS_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+fi
+
 is_pid() {
   # Reject PID 0 (the current process group), PID 1, signs, and leading zeros.
   [[ "$1" =~ ^[1-9][0-9]*$ && "$1" != 1 ]]
