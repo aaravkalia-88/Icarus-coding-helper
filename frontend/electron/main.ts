@@ -377,14 +377,12 @@ async function runElectron(): Promise<void> {
   let popup: import('electron').BrowserWindow | undefined
   let popupLoad: Promise<void> | undefined
   let popupMode: ModeId | undefined
-  let automaticInvocation = false
   let capturingSelection = false
   let popupThinking = false
   let invocationVersion = 0
   let popupAnchor: Point = { x: 0, y: 0 }
   let shortcutState: 'ready' | 'collision' = 'collision'
-  const popupSize = { width: 370, height: 510 }
-  const thinkingSize = { width: 112, height: 112 }
+  const popupSize = { width: 560, height: 620 }
   const devURL = process.env.ICARUS_DEV_URL
   if (devURL) {
     const url = new URL(devURL)
@@ -403,6 +401,8 @@ async function runElectron(): Promise<void> {
         alwaysOnTop: true,
         skipTaskbar: true,
         resizable: false,
+        fullscreenable: false,
+        maximizable: false,
         webPreferences: {
           preload,
           nodeIntegration: false,
@@ -446,20 +446,19 @@ async function runElectron(): Promise<void> {
     const target = external ? await selectionHelper.target().catch(() => null) : null
     if (version !== invocationVersion) return
     for (const controller of generations.values()) controller.abort()
-    popupMode = mode || (external ? 'analyze' : undefined)
-    automaticInvocation = external
+    popupMode = mode
     const source = target?.pid === process.pid ? null : target
     selection.prepare(source, popupMode)
     capturingSelection = external && Boolean(source)
     capturePending = capturingSelection
-    popupThinking = external
+    popupThinking = capturingSelection
     popupAnchor = screen.getCursorScreenPoint()
     const window = createPopup()
     await popupLoad
     if (window.isDestroyed() || version !== invocationVersion) return
     window.setBounds(placePopup(popupAnchor, screen.getDisplayNearestPoint(popupAnchor).workArea,
-      external ? thinkingSize : popupSize))
-    if (process.platform === 'darwin') window.setVibrancy(external ? null : 'popover')
+      popupSize))
+    if (process.platform === 'darwin') window.setVibrancy('popover')
     window.webContents.send('icarus:invoked')
     if (external) window.showInactive()
     else { window.show(); window.focus() }
@@ -468,7 +467,7 @@ async function runElectron(): Promise<void> {
       if (version !== invocationVersion || window.isDestroyed()) return
       if (invocation.bounds) {
         popupAnchor = { x: invocation.bounds.x + invocation.bounds.width, y: invocation.bounds.y + invocation.bounds.height }
-        window.setBounds(placePopup(popupAnchor, screen.getDisplayNearestPoint(popupAnchor).workArea, thinkingSize))
+        window.setBounds(placePopup(popupAnchor, screen.getDisplayNearestPoint(popupAnchor).workArea, popupSize))
       }
       capturingSelection = false
       capturePending = false
@@ -692,15 +691,12 @@ async function runElectron(): Promise<void> {
     }
   })
   ipcMain.handle('icarus:get-invocation', event => fromWindow(event, popup)
-    ? { ...selection.invocation, autoRun: automaticInvocation, capturing: capturingSelection,
+    ? { ...selection.invocation, capturing: capturingSelection,
       ...(popupMode ? { mode: popupMode } : {}) } : { selectedText: null })
   ipcMain.handle('icarus:popup-thinking', (event, thinking: unknown) => {
     if (!fromWindow(event, popup) || typeof thinking !== 'boolean' || !popup || popup.isDestroyed()) return { status: 'error' }
     const wasThinking = popupThinking
     popupThinking = thinking
-    popup.setBounds(placePopup(popupAnchor, screen.getDisplayNearestPoint(popupAnchor).workArea,
-      thinking ? thinkingSize : popupSize))
-    if (process.platform === 'darwin') popup.setVibrancy(thinking ? null : 'popover')
     if (wasThinking && !thinking && popup.isVisible()) { popup.show(); popup.focus() }
     return { status: 'ok' }
   })

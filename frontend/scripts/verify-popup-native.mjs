@@ -8,7 +8,7 @@ const { _electron } = await import(process.env.ICARUS_PLAYWRIGHT_MODULE
 const root = path.resolve(import.meta.dirname, '..')
 const project = path.dirname(root)
 const output = path.join(project, 'docs/verification')
-const profile = await mkdtemp(path.join(tmpdir(), 'icarus-orb-native-'))
+const profile = await mkdtemp(path.join(tmpdir(), 'icarus-popup-native-'))
 const selection = path.join(profile, 'selection.cjs')
 const python = path.join(profile, 'python-fixture')
 const boot = path.join(profile, 'boot.cjs')
@@ -82,7 +82,6 @@ electron.globalShortcut.register = (accelerator, callback) => {
 }
 require(${JSON.stringify(path.join(root, 'dist-electron/main.cjs'))})
 `)
-
 try {
   app = await _electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
@@ -100,85 +99,61 @@ try {
   for (const page of [main, popup]) page.on('pageerror', error => errors.push(error.message))
   await main.waitForFunction(() => window.icarus)
   assert.equal((await main.evaluate(() => window.icarus.health())).status, 'ok')
-  assert.equal(await app.evaluate(() => globalThis.icarusFixtureAccelerator), 'CommandOrControl+Shift+Q')
-  assert.deepEqual(await main.evaluate(() => window.icarus.saveConnection(
-    { provider: 'huggingface', model: 'fixture-model' }, 'fixture-token')), { status: 'saved', model: 'fixture-model', reply: 'OK' },
-    'a new supplied token connects even if an old Keychain entry cannot be read')
-  const rejected = await main.evaluate(() => window.icarus.saveConnection(
-    { provider: 'openai', model: 'other-model' }, 'rejected-fixture'))
-  assert.equal(rejected.status, 'error')
-  assert.equal((await main.evaluate(() => window.icarus.connectionStatus())).connection.provider, 'huggingface')
-  await app.evaluate(() => { globalThis.icarusFixtureNextSaveFails = true })
-  const failedSave = await main.evaluate(() => window.icarus.saveConnection(
-    { provider: 'openai', model: 'other-model' }, 'fixture-openai-key'))
-  assert.equal(failedSave.status, 'error')
-  assert.equal((await main.evaluate(() => window.icarus.connectionStatus())).connection.provider, 'huggingface')
-  checks.push('new API token connects without reading an inaccessible old token', 'failed provider test preserves the saved connection',
-    'failed Keychain write restores the previous provider settings')
-
-  const started = Date.now()
-  await app.evaluate(() => globalThis.icarusFixtureShortcut())
-  await popup.locator('.popup-thinking').waitFor()
-  await popup.waitForFunction(() => !document.hidden)
-  assert.equal(await popup.locator('.popup-panel').count(), 0)
-  const state = await app.evaluate(({ BrowserWindow }) => {
+  const originalMain = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('/index.html')).getBounds())
+  const nativeState = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('/popup.html'))
-    return { bounds: window.getBounds(), focused: window.isFocused() }
+    return { bounds: window.getBounds(), fullScreen: window.isFullScreen(), fullscreenable: window.isFullScreenable(), maximizable: window.isMaximizable() }
   })
-  assert.equal(state.bounds.width, 112)
-  assert.equal(state.bounds.height, 112)
-  assert.equal(state.focused, false, 'orb preserves the source app focus during capture')
-  await popup.waitForFunction(() => innerWidth === 112)
-  const orb = await popup.locator('.popup-orb-button canvas').boundingBox()
-  assert.ok(orb && orb.x >= 0 && orb.x + orb.width <= 112 && orb.y >= 0 && orb.y + orb.height <= 112,
-    'the complete orb fits within the compact native viewport')
-  await popup.screenshot({ path: path.join(output, 'orb-native-thinking.png') })
-  await popup.locator('.popup-answer').waitFor({ timeout: 10000 })
-  assert.ok(Date.now() - started >= 4990)
+  assert.equal((await nativeState()).fullscreenable, false)
+  assert.equal((await nativeState()).maximizable, false)
+  assert.equal(await app.evaluate(() => globalThis.icarusFixtureAccelerator), 'CommandOrControl+Shift+Q')
+  await app.evaluate(() => globalThis.icarusFixtureShortcut())
+  await popup.getByLabel('What are you building?', { exact: false }).waitFor({ timeout: 5000 })
+  assert.equal(await popup.getByLabel('Code from Fixture IDE', { exact: true }).inputValue(), 'const selected = 42')
+  assert.equal((await popup.evaluate(() => window.icarus.getInvocation())).mode, undefined)
+  assert.equal(await readFile(requests, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error }), '')
+  const before = await nativeState()
+  assert.deepEqual({ width: before.bounds.width, height: before.bounds.height }, { width: 560, height: 620 })
+  assert.equal(before.fullScreen, false)
+  await popup.getByLabel('What are you building?', { exact: false }).fill('A local exercise')
+  await popup.getByRole('button', { name: 'Choose a mode', exact: true }).click()
+  await popup.screenshot({ path: path.join(output, 'glass-popup-native-modes.png') })
+  await popup.getByRole('menuitem', { name: 'Hint Mode', exact: true }).click()
+  await popup.locator('.popup-answer').waitFor({ timeout: 5000 })
   assert.equal(await popup.locator('.popup-answer').innerText(), 'Native fixture answer.')
-  const expanded = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
-    .find(window => window.webContents.getURL().endsWith('/popup.html')).getBounds())
-  assert.equal(expanded.width, 370)
-  assert.equal(expanded.height, 510)
-  const calls = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
-  assert.equal(calls.length, 1)
-  assert.ok(calls[0].messages[1].content.includes('const selected = 42'))
-  assert.equal(calls[0].model, 'fixture-model')
-  assert.equal(calls[0].provider, 'huggingface')
-  assert.equal(calls[0].has_key, true)
-  assert.equal(calls[0].matches_fixture, true)
-  checks.push('shortcut handler captures highlighted text automatically', 'orb is a compact transparent 112px native window',
-    'source app keeps focus during capture', 'real authenticated FastAPI sidecar receives selected text and saved model',
-    'five-second minimum before native response expansion')
-  await popup.screenshot({ path: path.join(output, 'orb-native-response.png') })
+  assert.deepEqual((await nativeState()).bounds, before.bounds, 'response does not grow or shrink the popup')
+  const first = JSON.parse((await readFile(requests, 'utf8')).trim().split('\n')[0])
+  assert.ok(first.messages.some(message => message.content.includes('const selected = 42')))
+  assert.ok(first.messages.some(message => message.content.includes('A local exercise')))
+  assert.equal(await popup.locator('canvas').count(), 0)
+  await popup.screenshot({ path: path.join(output, 'glass-popup-native-response.png') })
+  checks.push('native popup refuses fullscreen/maximize', 'shortcut captures selected code before focus transfer',
+    'nothing is sent until project context and mode are chosen', 'real IPC forwards code/context to Python',
+    'answer retains the compact window bounds and glass background')
 
-  await popup.getByRole('button', { name: 'Open app', exact: true }).click()
-  assert.deepEqual(await main.evaluate(() => window.icarus.saveConnection(
-    { provider: 'openai', model: 'fixture-model' }, 'fixture-openai-key')), { status: 'saved', model: 'fixture-model', reply: 'OK' })
-  await main.evaluate(() => window.icarus.openPopup('fix_code'))
-  await popup.getByLabel('Fix Code', { exact: true }).fill('const broken = 1')
-  await popup.getByRole('button', { name: 'Run Fix Code', exact: true }).click()
-  await popup.getByRole('button', { name: 'Stop generation', exact: true }).waitFor()
-  await popup.getByRole('button', { name: 'Stop generation', exact: true }).click()
+  assert.equal((await main.evaluate(() => window.icarus.openPopup('full_solve'))).status, 'ok')
+  await popup.getByLabel('Full Solve', { exact: true }).fill('Explain a sorting exercise')
+  await popup.getByLabel('What are you building?', { exact: false }).fill('An algorithms lesson')
+  await popup.getByRole('button', { name: 'Run Full Solve', exact: true }).click()
+  await popup.locator('.popup-answer').waitFor({ timeout: 5000 })
+  await popup.getByRole('button', { name: 'Stop', exact: true }).click()
   await popup.getByRole('status').filter({ hasText: /^Stopped$/ }).waitFor()
-  const vaultCalls = await app.evaluate(() => globalThis.icarusFixtureVaultCalls)
-  assert.equal(vaultCalls.filter(call => call.operation === 'get').length, 0,
-    'connected requests use the provider-specific native cache without prompting Keychain')
-  const routed = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
-  assert.equal(routed[1].provider, 'openai')
-  assert.equal(routed[1].matches_fixture, true)
+  assert.equal(await popup.locator('.popup-answer').innerText(), 'Native fixture answer.')
+  assert.equal((await nativeState()).fullScreen, false)
+  assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('/index.html')).getBounds()), originalMain)
   await popup.getByRole('button', { name: 'Open app', exact: true }).click()
-  checks.push('direct mode button opens input and starts generation', 'orb stop button returns a usable result panel',
-    'provider switching uses the matching cached API token with no Keychain reads')
+  checks.push('landing-mode IPC opens editable inputs in the same popup', 'stop preserves a partial answer',
+    'main window bounds/content route remain unchanged and Open app still works')
   assert.deepEqual(errors, [])
-  await writeFile(path.join(output, 'orb-native-results.json'), JSON.stringify({ result: 'PASS', checks, errors,
-    scope: 'Real Electron windows, native IPC, real FastAPI sidecar; fixture model and selection. Shortcut callback invoked directly; no OS keystroke or live provider call.' }, null, 2) + '\n')
+  await writeFile(path.join(output, 'glass-popup-native-results.json'), JSON.stringify({ result: 'PASS', checks, errors,
+    scope: 'Real Electron/preload/IPC/Python; fixture selection/model, temporary data and dummy Keychain. No OS keystroke or live provider call.' }, null, 2))
   console.info(JSON.stringify({ result: 'PASS', checks }, null, 2))
 } catch (error) {
-  await writeFile(path.join(output, 'orb-native-results.json'), JSON.stringify({ result: 'FAIL', checks, errors,
-    failure: error.message }, null, 2) + '\n')
+  await writeFile(path.join(output, 'glass-popup-native-results.json'), JSON.stringify({ result: 'FAIL', checks, errors, failure: error.message }, null, 2))
   throw error
 } finally {
-  if (app) await app.close()
+  await app?.close()
   await rm(profile, { recursive: true, force: true })
 }

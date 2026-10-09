@@ -2,7 +2,9 @@
 
 A macOS programming companion for the code in front of you. Open a mode from the animated library and workspace, or select text in another app and press **⌘⇧Q**. Answers stream into a desktop panel with Copy, Retry, Stop, and follow-up questions.
 
-Available modes: Hint Mode, Explain My Mistake, Improve Logic, Fix Code, Full Solve, Ask ICARUS, Explain Code, and Refactor. Project notes and recent answers stay in local storage. Connections support Hugging Face, OpenAI, Groq, OpenRouter, Google Gemini, Ollama, LM Studio, and other OpenAI-compatible APIs.
+The shortcut captures highlighted code into an editable, compact glass panel, asks what you are building, and lets you choose a mode before sending anything. Opening a mode from the landing page uses the same panel without entering fullscreen. Responses appear as soon as they stream; there is no artificial thinking delay.
+
+Available modes: Hint Mode, Full Coach (Improve Logic on the main page), Explain My Mistake, Fix Code, Full Solve, Ask ICARUS, Explain Code, and Refactor. Project notes and recent answers stay in local storage. Connections support Hugging Face, OpenAI, Groq, OpenRouter, Google Gemini, Ollama, LM Studio, and other OpenAI-compatible APIs.
 
 See [the implemented architecture](ARC.md), [product plans](PRO.md), and [design guidance](DESIGN.md). Product and design documents also contain future ideas; the architecture describes current behavior.
 
@@ -55,9 +57,11 @@ Optional browser QA requires Playwright and Chrome. Install Playwright in the de
 
 ```sh
 node --test scripts/verify-error-handling.mjs
+node scripts/verify-popup.mjs
+node scripts/verify-popup-native.mjs
 ```
 
-Additional scene, Home, and popup checks are under `frontend/scripts`. Some native QA scripts use real desktop integration and should be reviewed before running against saved connections.
+The popup native check runs real Electron/IPC/Python with temporary storage, dummy credentials, and fixture selection/model responses. It does not press an OS shortcut or read real editor text. Additional scene and Home checks are under `frontend/scripts`. Other native QA scripts may use real desktop integration and should be reviewed before running against saved connections.
 
 ## Source and local files
 

@@ -16,7 +16,7 @@ export type ProjectMemory = { project: string; goal: string; notes: string }
 export type Mood = 'friendly' | 'full_tutor' | 'fun' | 'gen_z'
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string }
 export type GenerationOptions = { building?: string; includeMemory?: boolean; mood?: Mood; conversation?: ConversationTurn[] }
-export type Invocation = { selectedText: string | null; mode?: ModeId; autoRun?: boolean; capturing?: boolean; permissionRequired?: boolean; sourceApp?: string; captureStatus?: 'selected' | 'empty' | 'permission_needed' | 'unavailable' }
+export type Invocation = { selectedText: string | null; mode?: ModeId; capturing?: boolean; permissionRequired?: boolean; sourceApp?: string; captureStatus?: 'selected' | 'empty' | 'permission_needed' | 'unavailable' }
 
 export type ModeResult =
   | { status: 'started'; requestId: string }

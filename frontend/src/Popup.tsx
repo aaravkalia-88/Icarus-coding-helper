@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { ThinkingOrb } from 'thinking-orbs'
 import type { ConversationTurn, GenerationEvent, GenerationOptions, ModeId, ModeResult, Mood } from './icarus'
 import { generationError } from './generation-errors'
 import './Popup.css'
-import './Glass.css'
 
 const commands: { id: ModeId; label: string; symbol: string }[] = [
-  { id: 'logic_coach', label: 'Improve Logic', symbol: '◇' },
+  { id: 'hint', label: 'Hint Mode', symbol: '✧' },
+  { id: 'logic_coach', label: 'Full Coach', symbol: '◇' },
   { id: 'explain_mistake', label: 'Explain My Mistake', symbol: '!' },
   { id: 'fix_code', label: 'Fix Code', symbol: '↗' },
-  { id: 'hint', label: 'Hint Mode', symbol: '✧' },
   { id: 'explain_code', label: 'Explain Code', symbol: '≡' },
   { id: 'refactor', label: 'Refactor', symbol: '⌁' },
   { id: 'ask_icarus', label: 'Ask ICARUS', symbol: '✦' },
@@ -57,42 +55,22 @@ export default function Popup() {
   const [capturing, setCapturing] = useState(false)
   const rows = useRef<(HTMLButtonElement | null)[]>([])
   const input = useRef<HTMLTextAreaElement>(null)
+  const projectInput = useRef<HTMLInputElement>(null)
   const requestId = useRef(0)
   const activeStreamId = useRef<string | null>(null)
   const pendingStart = useRef(false)
   const earlyEvents = useRef<GenerationEvent[]>([])
-  const thinkingStarted = useRef(0)
-  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const submitModeRef = useRef(submitMode)
   const reduceMotion = useReducedMotion()
   const hasSelection = Boolean(code.trim())
-
-  useLayoutEffect(() => { submitModeRef.current = submitMode })
-
   useEffect(() => {
     try { localStorage.setItem('icarus-mood', mood) } catch { /* Mood still applies to this session. */ }
   }, [mood])
 
-  function cancelReveal() {
-    if (revealTimer.current !== null) clearTimeout(revealTimer.current)
-    revealTimer.current = null
-  }
-
-  const revealAfterThinking = useCallback((next: View) => {
-    if (revealTimer.current !== null) clearTimeout(revealTimer.current)
-    const currentRequest = requestId.current
-    revealTimer.current = setTimeout(() => {
-      revealTimer.current = null
-      if (currentRequest === requestId.current) setView(next)
-    }, Math.max(0, 5000 - (performance.now() - thinkingStarted.current)))
-  }, [])
-
   useLayoutEffect(() => {
-    void window.icarus?.setPopupThinking?.(view === 'loading').catch(() => console.error('Could not resize the ICARUS panel'))
+    void window.icarus?.setPopupThinking?.(view === 'loading').catch(() => console.error('Could not update the ICARUS panel state'))
   }, [view])
 
   useEffect(() => () => {
-    cancelReveal()
     requestId.current++
     if (activeStreamId.current) void window.icarus?.stopGeneration(activeStreamId.current).catch(() => console.error('Could not stop the previous generation'))
   }, [])
@@ -101,6 +79,7 @@ export default function Popup() {
     if (event.type === 'delta') {
       if (!event.text) return
       setAnswer(previous => previous + event.text)
+      setView('response')
     } else {
       activeStreamId.current = null
       setGenerationId(null)
@@ -110,9 +89,9 @@ export default function Popup() {
         setStreamState(event.message === 'Generation stopped' ? 'stopped' : 'error')
         setStreamMessage(generationError(event.message))
       }
-      revealAfterThinking('response')
+      setView('response')
     }
-  }, [revealAfterThinking])
+  }, [])
 
   useEffect(() => {
     return window.icarus?.onGeneration?.(event => {
@@ -128,7 +107,6 @@ export default function Popup() {
     async function readInvocation(reset = false) {
       const currentRequest = ++contextRequest
       if (reset) {
-        cancelReveal()
         if (activeStreamId.current) void window.icarus?.stopGeneration(activeStreamId.current).catch(() => console.error('Could not stop the previous generation'))
         activeStreamId.current = null
         pendingStart.current = false
@@ -162,21 +140,13 @@ export default function Popup() {
           setView('loading')
         } else if (invocation?.permissionRequired) {
           setView('permission')
-        } else if (invocation?.autoRun && selected) {
-          const mode = invocation.mode || 'analyze'
-          void submitModeRef.current(mode, undefined, { mode, text: invocation.selectedText!, options: { mood } })
-        } else if (invocation?.autoRun) {
-          setPermissionMessage('No selected text was available. Select text in your app and use ⌘⇧Q again, or paste it here.')
-          setView('setup')
         } else if (invocation?.mode) {
           setWorkspaceMode(invocation.mode)
           setActiveIndex(commands.findIndex(command => command.id === invocation.mode))
           setView(invocation.mode === 'ask_icarus' ? 'ask' : 'code')
-        } else if (selected) {
-          setActiveIndex(0)
-          setView('menu')
         } else {
-          setView('menu')
+          if (!selected) setPermissionMessage('Select code in your app and use ⌘⇧Q, or paste it here.')
+          setView('setup')
         }
       } catch {
         if (active && currentRequest === contextRequest) { setContext('unavailable'); setView('setup') }
@@ -194,7 +164,8 @@ export default function Popup() {
 
   useEffect(() => {
     if (view === 'menu') rows.current[hasSelection || commands[activeIndex]?.id === 'full_solve' ? activeIndex : 6]?.focus()
-    if (view === 'ask' || view === 'code' || view === 'setup') input.current?.focus()
+    if (view === 'setup') projectInput.current?.focus()
+    if (view === 'ask' || view === 'code') input.current?.focus()
   }, [view, context, activeIndex, hasSelection])
 
   function focusRow(index: number) {
@@ -203,7 +174,6 @@ export default function Popup() {
   }
 
   async function dismiss(returnHome = false) {
-    cancelReveal()
     if (activeStreamId.current) void window.icarus?.stopGeneration(activeStreamId.current).catch(() => console.error('Could not stop the previous generation'))
     activeStreamId.current = null
     pendingStart.current = false
@@ -228,8 +198,6 @@ export default function Popup() {
     if (mode === 'ask_icarus' && !question) return
 
     const currentRequest = ++requestId.current
-    cancelReveal()
-    thinkingStarted.current = performance.now()
     setCapturing(false)
     activeStreamId.current = null
     pendingStart.current = true
@@ -269,7 +237,7 @@ export default function Popup() {
       earlyEvents.current = []
       setOutcome({ status: 'error', message: 'ICARUS could not reach the desktop service. Try again.' })
     }
-    if (requestId.current === currentRequest) revealAfterThinking('outcome')
+    if (requestId.current === currentRequest) setView('outcome')
   }
 
   function chooseMode(mode: ModeId) {
@@ -284,7 +252,6 @@ export default function Popup() {
   }
 
   function returnToMenu() {
-    cancelReveal()
     if (activeStreamId.current) void window.icarus?.stopGeneration(activeStreamId.current).catch(() => console.error('Could not stop the previous generation'))
     activeStreamId.current = null
     pendingStart.current = false
@@ -306,7 +273,6 @@ export default function Popup() {
   }
 
   async function stopGeneration() {
-    cancelReveal()
     const id = activeStreamId.current
     if (!id) return
     activeStreamId.current = null
@@ -367,7 +333,7 @@ export default function Popup() {
 
   const contextFields = <div className="popup-project-context">
     <label htmlFor="icarus-building">What are you building? <span>(optional)</span></label>
-    <input id="icarus-building" maxLength={500} value={building} onChange={event => setBuilding(event.target.value)} placeholder="A small API, a game, a coding exercise…" />
+    <input ref={projectInput} id="icarus-building" maxLength={500} value={building} onChange={event => setBuilding(event.target.value)} placeholder="A small API, a game, a coding exercise…" />
     <label className="popup-memory-choice"><input type="checkbox" checked={includeMemory} onChange={event => setIncludeMemory(event.target.checked)} />Use project notes in this request</label>
   </div>
 
@@ -399,16 +365,6 @@ export default function Popup() {
   const title = lastRequest?.mode === 'analyze' ? 'Analyze selection' : lastRequest && commands.find(command => command.id === lastRequest.mode)?.label
   const workspaceLabel = commands.find(command => command.id === workspaceMode)?.label
 
-  if (view === 'loading') return (
-    <main className="popup-thinking" onKeyDown={handleKeyDown} aria-label="ICARUS is thinking">
-      <button type="button" className="popup-orb-button" aria-label={generationId ? 'Stop generation' : 'Cancel thinking'}
-        title="Click to stop · Esc to close" onClick={() => { if (generationId) void stopGeneration(); else void dismiss() }}>
-        <ThinkingOrb state={capturing ? 'connecting' : lastRequest?.mode === 'full_solve' ? 'solving' : 'searching'} size={64} theme="dark" paused={Boolean(reduceMotion)} />
-      </button>
-      <span className="popup-visually-hidden" role="status" aria-live="polite">{capturing ? 'Reading your selection…' : 'ICARUS is thinking…'}</span>
-    </main>
-  )
-
   return (
     <main className="popup-shell" onKeyDown={handleKeyDown}>
       <motion.section
@@ -418,6 +374,7 @@ export default function Popup() {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.15, ease: 'easeOut' }}
       >
+        <div className="popup-ambient" aria-hidden="true" />
         <header className="popup-header">
           <div className="popup-brand">
             <svg className="popup-wing" viewBox="0 0 40 40" fill="none" aria-hidden="true">
@@ -430,7 +387,7 @@ export default function Popup() {
           <button className="popup-close" type="button" aria-label="Close ICARUS" onClick={() => void dismiss()}>×</button>
         </header>
 
-        {view !== 'permission' && <div className="popup-mood">
+        {view !== 'permission' && view !== 'loading' && <div className="popup-mood">
           <div><label htmlFor="icarus-mood">ICARUS mood</label>
             <select id="icarus-mood" value={mood} onChange={event => setMood(event.target.value as Mood)}>
               {Object.entries(moods).map(([id, value]) => <option key={id} value={id}>{value.label}</option>)}
@@ -443,33 +400,41 @@ export default function Popup() {
           <p className="popup-feedback-kicker">SELECTED CODE / {sourceApp}</p>
           <h1 id="selection-permission-title">Enable selection capture.</h1>
           <p>Allow ICARUS or icarus-selection in macOS Privacy & Security → Accessibility to read highlighted text in {sourceApp}.</p>
-          <p>⌘⇧Q analyzes your selection with your connected model. You can also paste text below.</p>
+          <p>⌘⇧Q brings your selection here. Choose a mode before sending it to your connected model. You can also paste text below.</p>
           {permissionMessage && <p role="status">{permissionMessage}</p>}
           <button type="button" className="popup-secondary" onClick={() => void openAccessibilitySettings()}>Open Accessibility settings</button>
           <div className="popup-actions"><button type="button" className="popup-secondary" disabled={captureBusy} onClick={() => void pasteInstead()}>Paste instead</button><button type="button" className="popup-primary" disabled={captureBusy} onClick={() => void allowSelection()}>{captureBusy ? 'Reading…' : 'Retry capture'}</button></div>
         </section>}
 
-        {view === 'setup' && <form className="popup-ask popup-setup" onSubmit={event => { event.preventDefault(); void submitMode('analyze') }}>
+        {view === 'loading' && <section className="popup-waiting" aria-label="ICARUS progress">
+          <div className="popup-waiting-light" aria-hidden="true" />
+          <h1>{capturing ? 'Bringing your code in.' : 'A little clarity, on its way.'}</h1>
+          <p role="status" aria-live="polite">{capturing ? 'Reading your selection…' : 'Waiting for the first response…'}</p>
+          <button type="button" className="popup-secondary" onClick={() => { if (generationId) void stopGeneration(); else void dismiss() }}>{generationId ? 'Stop generation' : 'Cancel'}</button>
+        </section>}
+
+        {view === 'setup' && <form className="popup-ask popup-setup" onSubmit={event => { event.preventDefault(); setActiveIndex(code.trim() ? 0 : 6); setView('menu') }}>
+          <h1>A little context first.</h1>
+          {contextFields}
           <label htmlFor="icarus-selection">{code ? `Code from ${sourceApp}` : 'Code for ICARUS'}</label>
           {permissionMessage && <p role="status">{permissionMessage}</p>}
           <textarea ref={input} id="icarus-selection" rows={4} maxLength={65536} value={code} onChange={event => setCode(event.target.value)} placeholder="Paste your selected code here…" spellCheck={false} />
-          {contextFields}
-          <p className="popup-privacy">Analyze infers the purpose from this excerpt. It does not inspect other files or run the code.</p>
-          <div className="popup-actions"><button type="button" className="popup-secondary" onClick={() => { setActiveIndex(code.trim() ? 0 : 6); setView('menu') }}>Choose a mode</button><button type="submit" className="popup-primary" disabled={!code.trim()}>Analyze selection</button></div>
+          <p className="popup-privacy">Your code stays here until you choose a mode. ICARUS does not run it or read other files.</p>
+          <div className="popup-actions"><button type="submit" className="popup-primary">Choose a mode</button></div>
         </form>}
 
         {view === 'menu' && (
           <>
             <div className="popup-context" role="status" aria-live="polite">
               <span className={`popup-context-dot popup-context-dot--${context}`} aria-hidden="true" />
-              <span>{hasSelection ? 'Code is ready' : context === 'checking' ? 'Checking selection…' : 'Add code or ask a question'}</span>
-              <button type="button" className="popup-code-button" onClick={() => setView('code')}>{hasSelection ? 'Edit code' : 'Add code'}</button>
+              <span>{building ? `Building: ${building}` : hasSelection ? 'Code is ready' : context === 'checking' ? 'Checking selection…' : 'Add code or ask a question'}</span>
+              <button type="button" className="popup-code-button" onClick={() => setView('setup')}>{hasSelection ? 'Edit context' : 'Add code'}</button>
             </div>
             <div className="popup-menu" role="menu" aria-label="Programming modes">
               {commands.map((command, index) => {
                 const disabled = command.id !== 'ask_icarus' && command.id !== 'full_solve' && !hasSelection
                 return (
-                  <button
+                  <motion.button
                     key={command.id}
                     ref={element => { rows.current[index] = element }}
                     type="button"
@@ -480,11 +445,13 @@ export default function Popup() {
                     title={disabled ? 'Add code to use this mode' : undefined}
                     onFocus={() => setActiveIndex(index)}
                     onClick={() => chooseMode(command.id)}
+                    whileHover={reduceMotion ? undefined : { y: -1 }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.98 }}
                   >
                     <span className="popup-command-icon" aria-hidden="true">{command.symbol}</span>
                     <span>{command.label}</span>
                     {index === activeIndex && !disabled && <span className="popup-command-enter" aria-hidden="true">↵</span>}
-                  </button>
+                  </motion.button>
                 )
               })}
             </div>

@@ -36,7 +36,7 @@ flowchart TD
 - `start.sh` supervises the desktop launcher; `stop.sh` stops its verified process group. The web variants serve the UI without desktop capabilities.
 - `frontend/electron/main.ts` creates windows, registers ⌘⇧Q, supervises Python, validates IPC, manages model connections, and relays response events.
 - `frontend/src/main.tsx` mounts `Landing`. Three library books open Settings, Home, or Model connection. `Home.tsx` routes the eight coding modes and project-memory dialog.
-- `frontend/src/popup-main.tsx` mounts `Popup`, which handles selection permissions, editable inputs, mentor moods, streamed text, bounded follow-ups, cancellation, copying, and retries.
+- `frontend/src/popup-main.tsx` mounts `Popup`, which handles selection permissions, editable inputs, mentor moods, streamed text, bounded follow-ups, cancellation, copying, and retries. The shortcut asks for project context before offering eight modes; it never auto-submits captured code. Native mode invocations use a 560 × 620 window that cannot maximize or enter fullscreen. The popup has independent glass/colour styles, respects reduced motion, and keeps the same bounds during capture, generation, and response.
 - Both React roots have a rendering-error fallback with a reload action. Expected async failures are handled by the relevant screen. Desktop navigation awaits loading promises so failed loads reach callers.
 - Authored ThreeUI scenes run in isolated frames. They receive no native bridge. Parent renderers validate the sending window and fixed action allowlists.
 
@@ -54,7 +54,7 @@ flowchart TD
 | `GET /v1/history`, `DELETE /v1/history` | Read or clear the local answer cache |
 | `POST /v1/chat/stream` | Validate a mode request and stream an answer |
 
-`backend/modes.py` supplies educational prompts for the eight modes and automatic selection analysis. Requests may include a project description, explicitly selected saved notes, a mentor mood, and up to three preceding user/assistant exchanges.
+`backend/modes.py` supplies educational prompts for the eight modes and retains the selection-analysis prompt for compatible callers. The popup labels `logic_coach` as Full Coach. Requests may include a project description, explicitly selected saved notes, a mentor mood, and up to three preceding user/assistant exchanges.
 
 `backend/providers.py` implements Ollama and OpenAI-compatible adapters for LM Studio, Hugging Face, OpenAI, Groq, OpenRouter, Gemini, and Other API. Preset destinations are fixed. Custom URLs require public HTTPS on port 443, reject credentials/query/fragment, and resolve only to global addresses. Requests pin the resolved address while retaining the original Host and TLS server name; certificate validation remains enabled. Environment proxies and redirects are disabled. Generation has a 120-second total deadline alongside HTTP timeouts; discovery and connection probes have 15 seconds, below the desktop's 20-second request timeout. A connection-probe body or stream line is limited to 1 MiB, and a complete stream to 8 MiB, including ignored metadata. Providers receive `Accept-Encoding: identity`; unsolicited compressed responses are rejected before decompression. Interrupted streams, invalid or empty answers, response limits, filtering, and unsupported actions return safe failure messages. Model requests are not retried automatically.
 

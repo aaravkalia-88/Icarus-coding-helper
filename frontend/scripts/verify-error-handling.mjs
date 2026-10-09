@@ -86,6 +86,7 @@ test('cache read failure is visible and clearing remains usable', async () => {
 test('partial answer keeps the specific response-limit guidance', async () => {
   await withPage('popup', async (page, url) => {
     await page.goto(url + 'popup.html')
+    await page.getByRole('button', { name: 'Choose a mode', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Hint Mode', exact: true }).click()
     await page.getByRole('alert').filter({ hasText: 'Model reached its response limit. Ask a shorter question or continue from the partial answer.' }).waitFor({ timeout: 7000 })
     assert.equal(await page.locator('.popup-answer').innerText(), 'partial fixture answer')
@@ -96,6 +97,7 @@ test('partial answer keeps the specific response-limit guidance', async () => {
 test('Accessibility settings failure offers manual recovery and background stop rejection is handled', async () => {
   await withPage('popup', async (page, url) => {
     await page.goto(url + 'popup.html')
+    await page.getByRole('button', { name: 'Choose a mode', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Hint Mode', exact: true }).waitFor()
     await page.evaluate(() => {
       window.icarus.selectMode = async () => ({ status: 'started', requestId: 'b'.repeat(24) })
