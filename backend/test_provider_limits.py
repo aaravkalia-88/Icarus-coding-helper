@@ -115,6 +115,25 @@ def test_fragmented_oversized_line_is_rejected(monkeypatch):
     assert stream.closed
 
 
+def test_buffered_frames_expire_after_a_consumer_pause(monkeypatch):
+    monkeypatch.setattr(providers, "PROVIDER_DEADLINE", 0.02)
+    stream = Chunks([b'data: {"choices":[{"delta":{"content":"OK"}}]}\ndata: [DONE]\n'])
+    upstream(monkeypatch, stream)
+
+    async def run():
+        answer = providers.get_provider("openai").stream([], "fixture", "fixture-token")
+        try:
+            assert await anext(answer) == "OK"
+            await asyncio.sleep(0.05)
+            with pytest.raises(TimeoutError):
+                await anext(answer)
+        finally:
+            await answer.aclose()
+
+    asyncio.run(run())
+    assert stream.closed
+
+
 def test_valid_utf8_and_crlf_frames_survive_chunk_boundaries(monkeypatch):
     body = 'data: {"choices":[{"delta":{"content":"🪶界"}}]}\r\n\r\ndata: [DONE]\r\n'.encode()
     stream = Chunks([body[index:index + 1] for index in range(len(body))])
