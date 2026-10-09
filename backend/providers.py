@@ -1,11 +1,15 @@
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import ipaddress
+import re
+import socket
 from typing import AsyncIterator, Literal, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-ProviderName = Literal["ollama", "lm_studio", "openai", "huggingface"]
+ProviderName = Literal["ollama", "lm_studio", "openai", "huggingface", "groq", "openrouter", "gemini", "custom"]
 Messages = list[dict[str, str]]
 TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
 PROVIDER_DEADLINE = 120.0
@@ -14,6 +18,7 @@ MAX_LINE_BYTES = 1024 * 1024
 MAX_STREAM_BYTES = 8 * 1024 * 1024
 HUGGINGFACE_URL = "https://router.huggingface.co/v1/chat/completions"
 QWEN_MODEL = "Qwen/Qwen3.8-27B"
+MODEL_ID = re.compile(r"^[^\s\x00-\x1f]{1,128}$")
 STREAM_ERRORS = {
     "invalid": "Model returned an invalid response. Try another model or retry.",
     "unavailable": "This model is unavailable or unsupported. Check the model ID.",
@@ -30,6 +35,39 @@ class ProviderResponseError(ValueError):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+def validate_base_url(value: str) -> str:
+    url = urlsplit(value)
+    host = url.hostname or ""
+    if (url.scheme != "https" or not host or url.username is not None or url.password is not None
+            or url.query or url.fragment or url.port not in (None, 443)
+            or host == "localhost" or host.endswith((".localhost", ".local", ".internal"))
+            or "\\" in value or any(char.isspace() or ord(char) < 32 for char in value)):
+        raise ValueError("Invalid API base URL")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        if not address.is_global:
+            raise ValueError("Invalid API base URL")
+    netloc = f"[{host}]" if ":" in host else host
+    return urlunsplit(("https", netloc, url.path.rstrip("/"), "", ""))
+
+
+async def public_endpoint(url: str):
+    host = urlsplit(url).hostname
+    addresses = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        raise ProviderResponseError("invalid")
+
+
+def model_ids(items, field="id"):
+    if not isinstance(items, list):
+        raise ProviderResponseError("invalid")
+    return sorted({item[field] for item in items if isinstance(item, dict)
+                   and isinstance(item.get(field), str) and MODEL_ID.fullmatch(item[field])})[:500]
 
 
 @asynccontextmanager
@@ -112,14 +150,25 @@ def check_finish(reason):
 class AIProvider(Protocol):
     def stream(self, messages: Messages, model: str, api_key: str | None) -> AsyncIterator[str]: ...
     async def test(self, model: str, api_key: str | None): ...
+    async def models(self, api_key: str | None): ...
 
 
 class OllamaProvider:
-    async def test(self, model: str, api_key: str | None):
+    async def models(self, api_key: str | None):
         async with provider_response("GET", "http://127.0.0.1:11434/api/tags", PROBE_DEADLINE) as (response, deadline):
             payload = await response_json(response, deadline)
-            if not any(item.get("name") in (model, model + ":latest") for item in payload.get("models", [])):
-                raise ProviderResponseError("unavailable")
+            return model_ids(payload.get("models"), "name")
+
+    async def test(self, model: str, api_key: str | None):
+        async with provider_response("POST", "http://127.0.0.1:11434/api/chat", PROBE_DEADLINE, json={
+            "model": model, "messages": [{"role": "user", "content": "Reply OK."}],
+            "stream": False, "options": {"num_predict": 256},
+        }) as (response, deadline):
+            payload = await response_json(response, deadline)
+            content = payload.get("message", {}).get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ProviderResponseError("empty")
+            return {"model": payload.get("model", model), "reply": content}
 
     async def stream(self, messages: Messages, model: str, api_key: str | None) -> AsyncIterator[str]:
         async with provider_response(
@@ -146,16 +195,28 @@ class OllamaProvider:
 
 
 class OpenAICompatibleProvider:
-    def __init__(self, url: str, local: bool):
+    def __init__(self, url: str, local: bool, custom=False):
         self.url = url
         self.local = local
+        self.custom = custom
+
+    async def models(self, api_key: str | None):
+        if self.custom:
+            await public_endpoint(self.url)
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        async with provider_response("GET", self.url.removesuffix("/chat/completions") + "/models",
+                                     PROBE_DEADLINE, headers=headers) as (response, deadline):
+            payload = await response_json(response, deadline)
+            return model_ids(payload.get("data"))
 
     async def test(self, model: str, api_key: str | None):
+        if self.custom:
+            await public_endpoint(self.url)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         limit = 'max_completion_tokens' if self.url.startswith('https://api.openai.com/') else 'max_tokens'
         async with provider_response("POST", self.url, PROBE_DEADLINE, headers=headers, json={
             "model": model, "messages": [{"role": "user", "content": "Reply OK."}],
-            "stream": False, limit: 16,
+            "stream": False, limit: 256,
         }) as (response, deadline):
             payload = await response_json(response, deadline)
             if not isinstance(payload, dict) or payload.get("error"):
@@ -165,9 +226,12 @@ class OpenAICompatibleProvider:
                 raise ProviderResponseError("invalid")
             message = choices[0].get("message")
             if not isinstance(message, dict) or not isinstance(message.get("content"), str) or not message["content"].strip():
-                raise ProviderResponseError("invalid")
+                raise ProviderResponseError("empty")
+            return {"model": payload.get("model", model), "reply": message["content"]}
 
     async def stream(self, messages: Messages, model: str, api_key: str | None) -> AsyncIterator[str]:
+        if self.custom:
+            await public_endpoint(self.url)
         if not self.local and not api_key:
             raise ValueError("Remote API key required")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -212,8 +276,13 @@ PROVIDERS: dict[ProviderName, AIProvider] = {
     "lm_studio": OpenAICompatibleProvider("http://127.0.0.1:1234/v1/chat/completions", local=True),
     "openai": OpenAICompatibleProvider("https://api.openai.com/v1/chat/completions", local=False),
     "huggingface": OpenAICompatibleProvider(HUGGINGFACE_URL, local=False),
+    "groq": OpenAICompatibleProvider("https://api.groq.com/openai/v1/chat/completions", local=False),
+    "openrouter": OpenAICompatibleProvider("https://openrouter.ai/api/v1/chat/completions", local=False),
+    "gemini": OpenAICompatibleProvider("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", local=False),
 }
 
 
-def get_provider(name: ProviderName) -> AIProvider:
+def get_provider(name: ProviderName, base_url: str | None = None) -> AIProvider:
+    if name == "custom":
+        return OpenAICompatibleProvider(validate_base_url(base_url or "") + "/chat/completions", local=False, custom=True)
     return PROVIDERS[name]

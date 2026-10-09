@@ -4,12 +4,13 @@ type Operation = 'set' | 'get' | 'status' | 'delete'
 
 export class KeychainStore {
   private readonly executable: string
-  private readonly provider: 'huggingface' | 'openai'
+  private readonly provider: string
   private cachedKey: string | null | undefined
   private pendingRead: Promise<string | null> | undefined
   private version = 0
 
-  constructor(executable: string, provider: 'huggingface' | 'openai' = 'huggingface') {
+  constructor(executable: string, provider = 'huggingface') {
+    if (!/^(huggingface|openai|groq|openrouter|gemini|custom-[a-f0-9]{64})$/.test(provider)) throw new Error('Invalid key provider')
     this.executable = executable
     this.provider = provider
   }

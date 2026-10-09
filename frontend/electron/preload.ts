@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('icarus', {
   denySelection: (): Promise<Invocation> => ipcRenderer.invoke('icarus:deny-selection'),
   openAccessibilitySettings: () => ipcRenderer.invoke('icarus:accessibility-settings'),
   connectionStatus: () => ipcRenderer.invoke('icarus:connection-status'),
+  discoverModels: (settings: ConnectionSettings, key?: string) => ipcRenderer.invoke('icarus:discover-models', settings, key),
   saveConnection: (settings: ConnectionSettings, key?: string) => ipcRenderer.invoke('icarus:save-connection', settings, key),
   testConnection: (settings: ConnectionSettings) => ipcRenderer.invoke('icarus:test-connection', settings),
   readMemory: (): Promise<ProjectMemory> => ipcRenderer.invoke('icarus:read-memory'),

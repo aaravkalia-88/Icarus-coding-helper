@@ -9,8 +9,9 @@ export type ModeId =
   | 'full_solve'
   | 'analyze'
 
-export type ProviderName = 'huggingface' | 'openai' | 'ollama' | 'lm_studio'
-export type ConnectionSettings = { provider: ProviderName; model: string }
+export type ProviderName = 'none' | 'huggingface' | 'openai' | 'ollama' | 'lm_studio' | 'groq' | 'openrouter' | 'gemini' | 'custom'
+export type ConnectionSettings = { provider: ProviderName; model: string; base_url?: string }
+export type ConnectionReply = { model: string; reply: string }
 export type ProjectMemory = { project: string; goal: string; notes: string }
 export type Mood = 'friendly' | 'full_tutor' | 'fun' | 'gen_z'
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string }
@@ -44,9 +45,10 @@ declare global {
       allowSelection: () => Promise<Invocation>
       denySelection: () => Promise<Invocation>
       openAccessibilitySettings: () => Promise<{ status: 'ok' | 'error'; message?: string }>
-      connectionStatus: () => Promise<{ status: 'ok'; connection: ConnectionSettings; keyStatus: 'configured' | 'missing' | 'not_needed' } | { status: 'error'; message: string }>
-      saveConnection: (settings: ConnectionSettings, key?: string) => Promise<{ status: 'saved' } | { status: 'error'; message: string }>
-      testConnection: (settings: ConnectionSettings) => Promise<{ status: 'connected' } | { status: 'error'; message: string }>
+      connectionStatus: () => Promise<{ status: 'ok'; connection: ConnectionSettings; keyStatus: 'configured' | 'missing' | 'not_needed' | 'unconfigured' } | { status: 'error'; message: string }>
+      discoverModels: (settings: ConnectionSettings, key?: string) => Promise<{ status: 'ok'; provider: ProviderName; models: string[] } | { status: 'error'; message: string }>
+      saveConnection: (settings: ConnectionSettings, key?: string) => Promise<({ status: 'saved' } & ConnectionReply) | { status: 'error'; message: string }>
+      testConnection: (settings: ConnectionSettings) => Promise<({ status: 'connected' } & ConnectionReply) | { status: 'error'; message: string }>
       readMemory: () => Promise<ProjectMemory>
       saveMemory: (memory: ProjectMemory) => Promise<ProjectMemory>
       historyStatus: () => Promise<{ count: number }>

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -27,6 +27,7 @@ type StreamRequest = ModeRequest & {
   provider: ConnectionSettings['provider']
   model: string
   api_key?: string
+  base_url?: string
   building?: string
   memory?: ProjectMemory
   mood?: GenerationOptions['mood']
@@ -38,14 +39,42 @@ const modes = new Set<string>([
   'explain_code', 'refactor', 'ask_icarus', 'full_solve', 'analyze',
 ])
 
-export function validateConnectionSettings(value: unknown): ConnectionSettings | null {
+export function detectProvider(key: string): ConnectionSettings['provider'] | null {
+  for (const [prefix, provider] of [['hf_', 'huggingface'], ['gsk_', 'groq'], ['sk-or-', 'openrouter'],
+    ['sk-proj-', 'openai'], ['sk-svcacct-', 'openai'], ['AIzaSy', 'gemini']] as const) {
+    if (key.startsWith(prefix)) return provider
+  }
+  return null
+}
+
+export function validateConnectionSettings(value: unknown, requireModel = true): ConnectionSettings | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
-  if (Object.keys(record).some(key => !['provider', 'model'].includes(key))
-    || !['huggingface', 'openai', 'ollama', 'lm_studio'].includes(String(record.provider))
-    || typeof record.model !== 'string' || !record.model || record.model.length > 128
+  if (Object.keys(record).some(key => !['provider', 'model', 'base_url'].includes(key))
+    || !['none', 'huggingface', 'openai', 'ollama', 'lm_studio', 'groq', 'openrouter', 'gemini', 'custom'].includes(String(record.provider))
+    || typeof record.model !== 'string' || (requireModel && record.provider !== 'none' && !record.model)
+    || (record.provider === 'none' && record.model !== '') || record.model.length > 128
     || /\s/.test(record.model) || Array.from(record.model).some(char => char.charCodeAt(0) < 32)) return null
-  return { provider: record.provider as ConnectionSettings['provider'], model: record.model }
+  let base_url: string | undefined
+  if (record.provider === 'custom') {
+    if (typeof record.base_url !== 'string' || record.base_url.length > 2048
+      || /[\s\\\x00-\x1f]/.test(record.base_url)) return null
+    try {
+      const url = new URL(record.base_url)
+      if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash
+        || url.port || url.hostname === 'localhost' || /\.(localhost|local|internal)$/.test(url.hostname)
+        || /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.|\[::1\])/.test(url.hostname)) return null
+      base_url = url.origin + url.pathname.replace(/\/+$/, '')
+    } catch { return null }
+  } else if (record.base_url !== undefined) return null
+  return { provider: record.provider as ConnectionSettings['provider'], model: record.model, ...(base_url ? { base_url } : {}) }
+}
+
+export function keychainProvider(settings: ConnectionSettings): string | null {
+  if (['none', 'ollama', 'lm_studio'].includes(settings.provider)) return null
+  return settings.provider === 'custom'
+    ? 'custom-' + createHash('sha256').update(settings.base_url!.replace(/\/+$/, '')).digest('hex')
+    : settings.provider
 }
 
 export function validatePopupMode(mode: unknown): ModeId | undefined | { status: 'error'; message: string } {
@@ -330,8 +359,13 @@ async function runElectron(): Promise<void> {
   const keychainPath = app.isPackaged
     ? path.join(process.resourcesPath, 'native', 'icarus-keychain')
     : path.join(__dirname, '../dist-native/icarus-keychain')
-  const keychain = new KeychainStore(keychainPath)
-  const keychains = { huggingface: keychain, openai: new KeychainStore(keychainPath, 'openai') }
+  const keychains = new Map<string, KeychainStore>()
+  function vaultFor(settings: ConnectionSettings): KeychainStore | null {
+    const provider = keychainProvider(settings)
+    if (!provider) return null
+    if (!keychains.has(provider)) keychains.set(provider, new KeychainStore(keychainPath, provider))
+    return keychains.get(provider)!
+  }
   const selectionPath = app.isPackaged ? path.join(process.resourcesPath, 'native', 'icarus-selection')
     : path.join(__dirname, '../dist-native/icarus-selection')
   const selectionHelper = new SelectionHelper(process.env.ICARUS_SELECTION_EXECUTABLE || selectionPath)
@@ -459,14 +493,19 @@ async function runElectron(): Promise<void> {
     }
     if (connectionBusy) return { status: 'error', message: 'A connection update is already running.' }
     connectionBusy = true
-    const vault = settings.provider === 'huggingface' || settings.provider === 'openai' ? keychains[settings.provider] : null
+    const vault = vaultFor(settings)
     let previousConnection: ConnectionSettings | undefined
     let settingsWritten = false
     try {
       previousConnection = await backend.request<ConnectionSettings>('/v1/settings')
+      if (settings.provider === 'none') {
+        await backend.request('/v1/settings', 'PUT', settings)
+        for (const controller of generations.values()) controller.abort()
+        return { status: 'saved', model: '', reply: '' }
+      }
       const key = typeof suppliedKey === 'string' ? suppliedKey.trim() : vault ? await vault.get() : null
       if (vault && !key) return { status: 'error', message: 'Enter an API token for this provider.' }
-      const test = await backend.request<{ status: string; message?: string }>('/v1/provider/test', 'POST',
+      const test = await backend.request<{ status: string; message?: string; model?: string; reply?: string }>('/v1/provider/test', 'POST',
         { ...settings, ...(vault && key ? { api_key: key } : {}) })
       if (test.status !== 'connected') return { status: 'error', message: test.message || 'Connection test failed.' }
       await backend.request('/v1/settings', 'PUT', settings)
@@ -474,7 +513,7 @@ async function runElectron(): Promise<void> {
       // Save the key last so a failed settings write cannot replace the old token.
       if (vault && typeof suppliedKey === 'string') await vault.set(suppliedKey.trim())
       for (const controller of generations.values()) controller.abort()
-      return { status: 'saved' }
+      return { status: 'saved', model: test.model || settings.model, reply: test.reply || '' }
     } catch {
       if (settingsWritten && previousConnection) {
         try { await backend.request('/v1/settings', 'PUT', previousConnection) } catch { /* Report the failed save below. */ }
@@ -558,19 +597,42 @@ async function runElectron(): Promise<void> {
     if (!fromWindow(event, mainWindow)) return { status: 'error', message: 'Unavailable' }
     try {
       const connection = await backend.request<ConnectionSettings>('/v1/settings')
-      const keyStatus = connection.provider === 'huggingface' || connection.provider === 'openai'
-        ? await keychains[connection.provider].status() : 'not_needed'
+      const vault = vaultFor(connection)
+      const keyStatus = connection.provider === 'none' ? 'unconfigured' : vault ? await vault.status() : 'not_needed'
       return { status: 'ok', connection, keyStatus }
     } catch { return { status: 'error', message: 'Could not read the connection. Check the local engine.' } }
   })
   ipcMain.handle('icarus:save-connection', (event, settings: unknown, key: unknown) =>
     fromWindow(event, mainWindow) ? saveConnection(settings, key) : { status: 'error', message: 'Unavailable' })
+  ipcMain.handle('icarus:discover-models', async (event, value: unknown, suppliedKey: unknown) => {
+    if (!fromWindow(event, mainWindow)) return { status: 'error', message: 'Unavailable' }
+    if (suppliedKey !== undefined && (typeof suppliedKey !== 'string' || !suppliedKey.trim()
+      || suppliedKey.length > 4096 || /[\r\n\0]/.test(suppliedKey))) return { status: 'error', message: 'Invalid API key' }
+    let settings = validateConnectionSettings(value, false)
+    if (!settings) return { status: 'error', message: 'Choose a provider and a valid API base URL.' }
+    if (settings.provider === 'none') {
+      const detected = typeof suppliedKey === 'string' ? detectProvider(suppliedKey.trim()) : null
+      if (!detected) return { status: 'error', message: 'This key does not identify its API. Choose a provider or enter the base URL under Other API.' }
+      settings = { provider: detected, model: '' }
+    }
+    try {
+      const vault = vaultFor(settings)
+      const key = typeof suppliedKey === 'string' ? suppliedKey.trim() : vault ? await vault.get() : null
+      if (vault && !key) return { status: 'error', message: 'Enter an API key for this provider.' }
+      const result = await backend.request<{ status: string; models?: string[]; message?: string }>('/v1/provider/models', 'POST', {
+        provider: settings.provider, ...(settings.base_url ? { base_url: settings.base_url } : {}), ...(key ? { api_key: key } : {}),
+      })
+      return result.status === 'ok' ? { status: 'ok', provider: settings.provider, models: result.models || [] }
+        : { status: 'error', message: result.message || 'Could not discover models. You can enter a model ID manually.' }
+    } catch { return { status: 'error', message: 'Could not discover models. Check the API connection or enter a model ID manually.' } }
+  })
   ipcMain.handle('icarus:test-connection', async (event, value: unknown) => {
     if (!fromWindow(event, mainWindow)) return { status: 'error', message: 'Unavailable' }
     const settings = validateConnectionSettings(value)
-    if (!settings) return { status: 'error', message: 'Invalid connection' }
+    if (!settings || settings.provider === 'none') return { status: 'error', message: 'Choose and save a model first.' }
     try {
-      const key = settings.provider === 'huggingface' || settings.provider === 'openai' ? await keychains[settings.provider].get() : null
+      const vault = vaultFor(settings)
+      const key = vault ? await vault.get() : null
       return await backend.request('/v1/provider/test', 'POST', { ...settings, ...(key ? { api_key: key } : {}) })
     } catch { return { status: 'error', message: 'Could not test the saved connection.' } }
   })
@@ -609,8 +671,8 @@ async function runElectron(): Promise<void> {
     if (!fromWindow(event, mainWindow)) return { status: 'error', message: 'Unavailable' }
     try {
       const settings = await backend.request<ConnectionSettings>('/v1/settings')
-      return { status: settings.provider === 'huggingface' || settings.provider === 'openai'
-        ? await keychains[settings.provider].status() : 'missing' }
+      const vault = vaultFor(settings)
+      return { status: vault ? await vault.status() : 'missing' }
     } catch {
       return { status: 'error', message: 'Could not read macOS Keychain' }
     }
@@ -620,8 +682,9 @@ async function runElectron(): Promise<void> {
     try {
       if (connectionBusy) return { status: 'error', message: 'Wait for the connection update to finish.' }
       const settings = await backend.request<ConnectionSettings>('/v1/settings')
-      if (settings.provider !== 'huggingface' && settings.provider !== 'openai') return { status: 'error', message: 'This local connection has no token.' }
-      await keychains[settings.provider].delete()
+      const vault = vaultFor(settings)
+      if (!vault) return { status: 'error', message: 'This connection has no token.' }
+      await vault.delete()
       for (const controller of generations.values()) controller.abort()
       return { status: 'deleted' }
     } catch {
@@ -696,13 +759,16 @@ async function runElectron(): Promise<void> {
     let memory: ProjectMemory | undefined
     try { connection = await backend.request<ConnectionSettings>('/v1/settings') }
     catch { return { status: 'error', message: 'The local engine is unavailable. Restart ICARUS and retry.' } satisfies ModeResult }
+    if (connection.provider === 'none' || !connection.model) return { status: 'model_unavailable',
+      message: 'Choose and test a model in Model connection first.' } satisfies ModeResult
     try {
-      if (connection.provider === 'huggingface' || connection.provider === 'openai') key = await keychains[connection.provider].get()
+      const vault = vaultFor(connection)
+      if (vault) key = await vault.get()
       if (context?.includeMemory) memory = await backend.request<ProjectMemory>('/v1/memory')
     } catch {
       return { status: 'model_unavailable', message: 'macOS Keychain is unavailable.' } satisfies ModeResult
     }
-    if ((connection.provider === 'huggingface' || connection.provider === 'openai') && !key) return { status: 'model_unavailable',
+    if (vaultFor(connection) && !key) return { status: 'model_unavailable',
       message: 'Add and test an API token in Model connection.' } satisfies ModeResult
     const health = await backend.health()
     if (health.status !== 'ok') return { status: 'error', message: health.message } satisfies ModeResult

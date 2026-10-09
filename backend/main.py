@@ -20,12 +20,12 @@ import uvicorn
 
 if __package__:
     from .modes import Mode, Mood, messages_for
-    from .providers import ProviderName, ProviderResponseError, STREAM_ERRORS, get_provider
+    from .providers import ProviderName, ProviderResponseError, STREAM_ERRORS, get_provider, validate_base_url, MODEL_ID
     from .redaction import redact
     from .storage import LocalStore
 else:
     from modes import Mode, Mood, messages_for
-    from providers import ProviderName, ProviderResponseError, STREAM_ERRORS, get_provider
+    from providers import ProviderName, ProviderResponseError, STREAM_ERRORS, get_provider, validate_base_url, MODEL_ID
     from redaction import redact
     from storage import LocalStore
 
@@ -56,7 +56,7 @@ app = FastAPI()
 app.router.route_class = BoundedRoute
 session_token: str | None = None
 store = LocalStore()
-REMOTE_PROVIDERS = ("openai", "huggingface")
+REMOTE_PROVIDERS = ("openai", "huggingface", "groq", "openrouter", "gemini", "custom")
 logger = logging.getLogger("icarus")
 
 
@@ -106,10 +106,28 @@ async def unexpected_error(_request: Request, error: Exception):
     return JSONResponse({"detail": "Something went wrong. Retry or restart Icarus."}, status_code=500)
 
 
-class ConnectionSettings(BaseModel):
+class ConnectionTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    provider: ProviderName = "huggingface"
-    model: str = Field(default="Qwen/Qwen3.8-27B", min_length=1, max_length=128, pattern=r"^[^\s\x00-\x1f]+$")
+    provider: ProviderName | Literal["none"] = "none"
+    base_url: str | None = Field(default=None, max_length=2048)
+
+    @model_validator(mode="after")
+    def check_endpoint(self):
+        if self.provider == "custom":
+            self.base_url = validate_base_url(self.base_url or "")
+        elif self.base_url is not None:
+            raise ValueError("API base URL only applies to Other API")
+        return self
+
+
+class ConnectionSettings(ConnectionTarget):
+    model: str = Field(default="", max_length=128)
+
+    @model_validator(mode="after")
+    def check_model(self):
+        if self.provider == "none" and self.model or self.provider != "none" and not MODEL_ID.fullmatch(self.model):
+            raise ValueError("Choose a model")
+        return self
 
 
 class ProjectMemory(BaseModel):
@@ -119,11 +137,13 @@ class ProjectMemory(BaseModel):
     notes: str = Field(default="", max_length=8000)
 
 
-class ProviderTest(ConnectionSettings):
+class ProviderDiscovery(ConnectionTarget):
     api_key: str | None = Field(default=None, max_length=4096)
 
     @model_validator(mode="after")
     def check_key(self):
+        if self.provider == "none":
+            raise ValueError("Choose a provider")
         if self.provider in REMOTE_PROVIDERS and (not self.api_key or not self.api_key.strip()):
             raise ValueError("API key required")
         if self.api_key and any(char in self.api_key for char in "\r\n\0"):
@@ -133,14 +153,18 @@ class ProviderTest(ConnectionSettings):
         return self
 
 
+class ProviderTest(ProviderDiscovery):
+    model: str = Field(min_length=1, max_length=128, pattern=r"^[^\s\x00-\x1f]+$")
+
+
 @app.get("/v1/settings")
 def read_settings():
-    return store.get("connection", ConnectionSettings().model_dump())
+    return store.get("connection", ConnectionSettings().model_dump(exclude_none=True))
 
 
 @app.put("/v1/settings")
 def save_settings(settings: ConnectionSettings):
-    return store.put("connection", settings.model_dump())
+    return store.put("connection", settings.model_dump(exclude_none=True))
 
 
 @app.get("/v1/memory")
@@ -181,10 +205,26 @@ def provider_error(error):
 @app.post("/v1/provider/test")
 async def test_provider(request: ProviderTest):
     try:
-        await get_provider(request.provider).test(request.model, request.api_key)
-        return {"status": "connected"}
+        provider = get_provider(request.provider, request.base_url) if request.provider == "custom" else get_provider(request.provider)
+        result = await provider.test(request.model, request.api_key)
+        if not result:
+            return {"status": "connected"}
+        reply = result["reply"].replace(request.api_key, "[REDACTED CREDENTIAL]") if request.api_key else result["reply"]
+        model = result.get("model")
+        return {"status": "connected", "model": model if isinstance(model, str) and MODEL_ID.fullmatch(model) else request.model,
+                "reply": redact(reply)[:160]}
     except Exception as error:
         log_failure("Connection test", error)
+        return {"status": "error", "message": provider_error(error)}
+
+
+@app.post("/v1/provider/models")
+async def discover_models(request: ProviderDiscovery):
+    try:
+        provider = get_provider(request.provider, request.base_url) if request.provider == "custom" else get_provider(request.provider)
+        return {"status": "ok", "models": await provider.models(request.api_key)}
+    except Exception as error:
+        log_failure("Model discovery", error)
         return {"status": "error", "message": provider_error(error)}
 
 
@@ -203,6 +243,7 @@ class ChatRequest(BaseModel):
     provider: ProviderName
     model: str = Field(min_length=1, max_length=128, pattern=r"^[^\s\x00-\x1f]+$")
     api_key: str | None = Field(default=None, max_length=4096)
+    base_url: str | None = Field(default=None, max_length=2048)
     building: str = Field(default="", max_length=500)
     memory: ProjectMemory | None = None
     mood: Mood = "friendly"
@@ -210,6 +251,10 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_request(self):
+        if self.provider == "custom":
+            self.base_url = validate_base_url(self.base_url or "")
+        elif self.base_url is not None:
+            raise ValueError("Unexpected API base URL")
         if len(self.conversation) % 2 or any(
             turn.role != ("assistant" if index % 2 else "user") or not turn.content.strip()
             for index, turn in enumerate(self.conversation)
@@ -235,7 +280,7 @@ def sse(event: Literal["delta", "done", "error"], data: dict) -> str:
 
 @app.post("/v1/chat/stream")
 async def chat_stream(request: ChatRequest):
-    provider = get_provider(request.provider)
+    provider = get_provider(request.provider, request.base_url) if request.provider == "custom" else get_provider(request.provider)
     text, prompt = request.text, request.prompt
     if request.provider in REMOTE_PROVIDERS:
         text, prompt = redact(text), redact(prompt)
