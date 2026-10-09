@@ -170,6 +170,8 @@ try {
       await page.getByRole('menuitem', { name: 'Hint Mode', exact: true }).focus()
       await page.keyboard.press('ArrowDown')
       assert.equal(await page.evaluate(() => document.activeElement.textContent.includes('Full Coach')), true)
+      const header = await page.locator('.popup-header').boundingBox()
+      assert.ok(header.y >= bounds.y && header.x >= bounds.x, 'keyboard focus must not scroll the panel chrome out of view')
       const columns = await page.locator('.popup-menu').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
       assert.equal(columns, 2)
       assert.ok((await page.getByRole('menuitem').first().boundingBox()).height >= 64, 'mode tiles fill the grid rows')
