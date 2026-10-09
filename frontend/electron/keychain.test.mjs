@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 const execute = promisify(execFile)
 const root = path.resolve(import.meta.dirname, '..')
 
-test('native Keychain operations never request a password for either provider', async () => {
+test('native Keychain operations support every provider and recover older tokens without password dialogs', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'icarus-no-password-'))
   try {
     // Shadow every Security operation so this test cannot touch real credentials.
@@ -27,10 +27,17 @@ func fixtureStatus(_ query: CFDictionary, _ operation: String) -> OSStatus {
           ["com.icarus.provider.huggingface", "com.icarus.provider.openai", "com.icarus.provider.groq",
            "com.icarus.provider.openrouter", "com.icarus.provider.gemini", "com.icarus.provider.custom-" + String(repeating: "a", count: 64)].contains(service),
           let account = item[kSecAttrAccount as String] as? String,
-          ["api-key", "api-key.no-password"].contains(account) else { return errSecParam }
+          ["api-key", "api-key.no-password", "api-key.no-password.v2"].contains(account) else { return errSecParam }
     let environment = ProcessInfo.processInfo.environment
     if interactionsAllowed || environment["ICARUS_FIXTURE_BLOCKED"] == "1" { return errSecInteractionNotAllowed }
+    if environment["ICARUS_FIXTURE_REBUILT"] == "1" {
+        if account == "api-key.no-password" { return errSecInteractionNotAllowed }
+        if operation == "read" { return errSecItemNotFound }
+    }
     if let legacy = environment["ICARUS_FIXTURE_LEGACY"] {
+        if legacy == "readable-v1" && operation == "read" {
+            return account == "api-key.no-password" ? errSecSuccess : errSecItemNotFound
+        }
         if account == "api-key" && legacy == "blocked" { return errSecInteractionNotAllowed }
         if account != "api-key" && operation == "read" { return errSecItemNotFound }
     }
@@ -85,10 +92,16 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
       assert.deepEqual(await run('get', provider, blocked), { code: 2, stdout: '' }, 'inaccessible legacy tokens recover as missing without requesting a password')
       assert.deepEqual(await run('status', provider, blocked), { code: 0, stdout: 'missing' })
       assert.deepEqual(await run('set', provider, blocked), { code: 0, stdout: 'ok' }, 're-entering an API key must not require access to the legacy entry')
+      const rebuilt = { ...process.env, ICARUS_FIXTURE_REBUILT: '1' }
+      assert.deepEqual(await run('get', provider, rebuilt), { code: 2, stdout: '' }, 'a token owned by the previous helper can be replaced without accessing it')
+      assert.deepEqual(await run('status', provider, rebuilt), { code: 0, stdout: 'missing' })
+      assert.deepEqual(await run('set', provider, rebuilt), { code: 0, stdout: 'ok' }, 'replacement uses a fresh account after this helper rebuild')
+      assert.deepEqual(await run('get', provider, { ...process.env, ICARUS_FIXTURE_LEGACY: 'readable-v1' }),
+        { code: 0, stdout: 'fixture-saved-token' }, 'readable tokens from the previous helper are preserved')
       const deletions = path.join(directory, 'deletions')
       await writeFile(deletions, '')
       assert.deepEqual(await run('delete', provider, { ...process.env, ICARUS_FIXTURE_DELETIONS: deletions }), { code: 0, stdout: 'ok' })
-      assert.equal(await readFile(deletions, 'utf8'), 'api-key\napi-key.no-password\n', 'deleted legacy tokens cannot reappear after restart')
+      assert.equal(await readFile(deletions, 'utf8'), 'api-key\napi-key.no-password\napi-key.no-password.v2\n', 'deleted legacy tokens cannot reappear after restart')
     }
     await assert.rejects(execute(executable, ['get', 'huggingface'], {
       timeout: 1000, env: { ...process.env, ICARUS_FIXTURE_BLOCKED: '1' },
