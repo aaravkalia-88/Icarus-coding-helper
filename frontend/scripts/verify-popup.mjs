@@ -6,6 +6,7 @@ import { createServer } from 'vite'
 const { chromium } = await import(process.env.ICARUS_PLAYWRIGHT_MODULE || 'playwright')
 const root = path.resolve(import.meta.dirname, '..')
 const output = path.resolve(root, '../docs/verification')
+await mkdir(output, { recursive: true })
 const server = await createServer({ root, server: { host: '127.0.0.1', port: 0 } })
 await server.listen()
 const browser = await chromium.launch({ headless: true, channel: 'chrome' })
@@ -56,6 +57,17 @@ try {
     const page = await panel({ selectedText: 'const total = 1', autoRun: true, sourceApp: 'Fixture IDE' })
     try {
       await page.getByLabel('What are you building?', { exact: false }).fill('A shopping cart')
+      const contrast = await page.getByRole('button', { name: 'Choose a mode', exact: true }).evaluate(element => {
+        const style = getComputedStyle(element)
+        if (style.backgroundImage !== 'none') return 0
+        const luminance = value => value.match(/[\d.]+/g).slice(0, 3).map(Number).map(channel => {
+          const c = channel / 255
+          return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4
+        }).reduce((sum, channel, i) => sum + channel * [.2126, .7152, .0722][i], 0)
+        const a = luminance(style.color), b = luminance(style.backgroundColor)
+        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+      })
+      assert.ok(contrast >= 4.5, 'primary action must have readable text contrast')
       assert.equal(await page.getByLabel('Code from Fixture IDE', { exact: true }).inputValue(), 'const total = 1')
       assert.deepEqual(await page.evaluate(() => window.fixture.requests), [])
       await choose(page)
@@ -160,6 +172,8 @@ try {
       assert.equal(await page.evaluate(() => document.activeElement.textContent.includes('Full Coach')), true)
       const columns = await page.locator('.popup-menu').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
       assert.equal(columns, 2)
+      assert.ok((await page.getByRole('menuitem').first().boundingBox()).height >= 64, 'mode tiles fill the grid rows')
+      assert.doesNotMatch(await page.locator('.popup-panel').evaluate(element => getComputedStyle(element, '::after').backgroundImage), /icarus-artwork/)
       assert.equal(await page.locator('.popup-ambient').evaluate(element => getComputedStyle(element).animationName), 'none')
       await page.screenshot({ path: path.join(output, 'glass-popup-modes.png') })
       await page.setViewportSize({ width: 320, height: 510 })
