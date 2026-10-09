@@ -105,7 +105,7 @@ def test_custom_endpoint_rejects_unsafe_urls_before_network(api, monkeypatch, ur
 
 def test_custom_endpoint_discovers_and_streams_through_the_same_adapter(api, monkeypatch):
     # Resolve the fixture name without contacting an external service.
-    monkeypatch.setattr(providers, "public_endpoint", lambda url: _async_value(url), raising=False)
+    monkeypatch.setattr(providers, "public_endpoint", lambda url: _async_value("93.184.216.34"), raising=False)
     calls = []
 
     def respond(request):
@@ -122,8 +122,10 @@ def test_custom_endpoint_discovers_and_streams_through_the_same_adapter(api, mon
     response = api.post("/v1/chat/stream", headers=HEADERS, json={
         **target, "model": "custom-model", "mode": "ask_icarus", "prompt": 'api_key="genericCredentialValue1234567890"'})
     assert "custom answer" in response.text and "event: done" in response.text
-    assert str(calls[0].url) == "https://api.example.com/v1/models"
-    assert str(calls[1].url) == "https://api.example.com/v1/chat/completions"
+    assert str(calls[0].url) == "https://93.184.216.34/v1/models"
+    assert str(calls[1].url) == "https://93.184.216.34/v1/chat/completions"
+    assert calls[1].headers["host"] == "api.example.com"
+    assert calls[1].extensions["sni_hostname"] == "api.example.com"
     assert "genericCredentialValue1234567890" not in calls[1].content.decode()
 
 

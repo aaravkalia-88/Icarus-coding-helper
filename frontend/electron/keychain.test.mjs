@@ -23,7 +23,9 @@ func SecKeychainSetUserInteractionAllowed(_ allowed: Bool) -> OSStatus {
 }
 func fixtureStatus(_ query: CFDictionary, _ operation: String) -> OSStatus {
     let item = query as! [String: Any]
-    guard ["com.icarus.provider.huggingface", "com.icarus.provider.openai"].contains(item[kSecAttrService as String] as? String ?? ""),
+    guard let service = item[kSecAttrService as String] as? String,
+          ["com.icarus.provider.huggingface", "com.icarus.provider.openai", "com.icarus.provider.groq",
+           "com.icarus.provider.openrouter", "com.icarus.provider.gemini", "com.icarus.provider.custom-" + String(repeating: "a", count: 64)].contains(service),
           let account = item[kSecAttrAccount as String] as? String,
           ["api-key", "api-key.no-password"].contains(account) else { return errSecParam }
     let environment = ProcessInfo.processInfo.environment
@@ -73,7 +75,7 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
       child.stdin.end(operation === 'set' ? 'fixture-saved-token' : '')
       return result
     }
-    for (const provider of ['huggingface', 'openai']) {
+    for (const provider of ['huggingface', 'openai', 'groq', 'openrouter', 'gemini', 'custom-' + 'a'.repeat(64)]) {
       for (const [operation, expected] of [['set', 'ok'], ['get', 'fixture-saved-token'], ['status', 'present'], ['delete', 'ok']]) {
         assert.deepEqual(await run(operation, provider), { code: 0, stdout: expected }, `${provider} ${operation} must disable Keychain dialogs`)
       }
