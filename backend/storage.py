@@ -15,6 +15,11 @@ class LocalStore:
     def __init__(self, filename: Path | None = None):
         if filename:
             filename.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            descriptor = os.open(filename, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
         self.connection = sqlite3.connect(str(filename) if filename else ":memory:", check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.lock = threading.RLock()
@@ -22,8 +27,6 @@ class LocalStore:
         with self.connection:
             self.connection.execute("CREATE TABLE IF NOT EXISTS state (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
             self.connection.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, mode TEXT NOT NULL, input TEXT NOT NULL, answer TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-        if filename:
-            os.chmod(filename, 0o600)
 
     def get(self, name, fallback):
         with self.lock:

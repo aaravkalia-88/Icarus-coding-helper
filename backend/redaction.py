@@ -12,7 +12,7 @@ TOKEN = re.compile(
     r"AIza[0-9A-Za-z_-]{35})\b"
 )
 ASSIGNMENT = re.compile(
-    r"\b((?:api[_-]?key|access[_-]?token|secret[_-]?key)\s*[:=]\s*['\"]?)"
+    r"\b((?:[A-Za-z0-9_]*[_-])?(?:api[_-]?key|access[_-]?token|secret[_-]?key)['\"]?\s*[:=]\s*['\"]?)"
     r"([A-Za-z0-9_./+=-]{16,256})(?![A-Za-z0-9_./+=-])",
     re.IGNORECASE,
 )

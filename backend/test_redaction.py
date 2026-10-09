@@ -69,6 +69,7 @@ def test_redaction_covers_common_key_shapes_and_preserves_surrounding_code():
     ('"api_key": "', '"'),
     ("'access_token': '", "'"),
     ('SERVICE_API_KEY="', '"'),
+    ("_API_KEY=", ""),
     ("SERVICE_ACCESS_TOKEN=", ""),
     ("SERVICE_SECRET_KEY=", ""),
 ])
