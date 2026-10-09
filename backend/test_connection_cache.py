@@ -123,7 +123,7 @@ def test_openai_connection_probe_uses_supported_completion_limit(monkeypatch):
         result = client.post('/v1/provider/test', headers=HEADERS,
             json={"provider": "openai", "model": "test-model", "api_key": "fixture-token"})
     assert result.json()["status"] == "connected"
-    assert requests[0]["max_completion_tokens"] == 16
+    assert requests[0]["max_completion_tokens"] == 256
     assert "max_tokens" not in requests[0]
 
 

@@ -2,10 +2,11 @@ import Foundation
 import Security
 
 let provider = CommandLine.arguments.count == 3 ? CommandLine.arguments[2] : "huggingface"
-guard ["huggingface", "openai"].contains(provider) else { exit(1) }
+guard ["huggingface", "openai", "groq", "openrouter", "gemini"].contains(provider)
+    || provider.range(of: "^custom-[a-f0-9]{64}$", options: .regularExpression) != nil else { exit(1) }
 let service = "com.icarus.provider.\(provider)"
-// Fresh entries trust this helper rather than an older build's access list.
-let account = "api-key.no-password"
+// This rebuilt unsigned helper needs a fresh account to replace inaccessible tokens.
+let account = "api-key.no-password.v2"
 let query: [String: Any] = [
     kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: service,
@@ -40,8 +41,8 @@ case "get", "status":
     item[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
     var status = SecItemCopyMatching(item as CFDictionary, &result)
-    if status == errSecItemNotFound {
-        item[kSecAttrAccount as String] = "api-key"
+    for legacy in ["api-key.no-password", "api-key"] where status == errSecItemNotFound {
+        item[kSecAttrAccount as String] = legacy
         status = SecItemCopyMatching(item as CFDictionary, &result)
         // An inaccessible legacy entry can be replaced by pasting the API key.
         if [errSecInteractionNotAllowed, errSecInteractionRequired, errSecAuthFailed].contains(status) {
@@ -57,7 +58,7 @@ case "get", "status":
         else { output("present") }
     }
 case "delete":
-    for account in ["api-key", account] {
+    for account in ["api-key", "api-key.no-password", account] {
         var item = query
         item[kSecAttrAccount as String] = account
         let status = SecItemDelete(item as CFDictionary)

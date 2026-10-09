@@ -9,7 +9,7 @@ export default function Models() {
         <div className="intro">
           <p className="eyebrow">YOUR INTELLIGENCE</p>
           <h1>Model connection.</h1>
-          <p className="intro-copy">Choose a cloud API or local model server. Test the connection and keep your token ready for future sessions.</p>
+          <p className="intro-copy">Detect available models from your API key, or connect another API or local server. Choose a model and verify its response before saving.</p>
         </div>
         <ProviderConnection />
       </main>

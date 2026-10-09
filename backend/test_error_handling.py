@@ -93,7 +93,7 @@ def test_history_write_failure_is_logged_without_losing_delivered_answer(api, mo
 def test_probe_failure_distinguishes_invalid_response_and_missing_model(api, monkeypatch, provider, payload, message):
     real_client = httpx.AsyncClient
     monkeypatch.setattr(providers.httpx, "AsyncClient", lambda **kwargs: real_client(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)), **kwargs))
+        transport=httpx.MockTransport(lambda _: httpx.Response(404 if provider == "ollama" else 200, json=payload)), **kwargs))
     response = api.post("/v1/provider/test", headers=HEADERS, json={
         "provider": provider, "model": "fixture", **({"api_key": "fixture-token"} if provider == "openai" else {})})
     assert response.json() == {"status": "error", "message": message}

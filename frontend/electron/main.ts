@@ -58,7 +58,7 @@ export function validateConnectionSettings(value: unknown, requireModel = true):
   let base_url: string | undefined
   if (record.provider === 'custom') {
     if (typeof record.base_url !== 'string' || record.base_url.length > 2048
-      || /[\s\\\x00-\x1f]/.test(record.base_url)) return null
+      || /[\s\\]/.test(record.base_url) || Array.from(record.base_url).some(char => char.charCodeAt(0) < 32)) return null
     try {
       const url = new URL(record.base_url)
       if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash

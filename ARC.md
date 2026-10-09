@@ -25,7 +25,7 @@ flowchart TD
     API --> Store["SQLite: settings, project notes, up to 50 answers"]
     Modes --> Providers["Provider adapters"]
     Providers --> Local["Ollama / LM Studio on localhost"]
-    Providers -->|"redacted request + provider token"| Remote["Hugging Face / OpenAI"]
+    Providers -->|"redacted request + provider token"| Remote["Hugging Face / OpenAI / Groq / OpenRouter / Gemini / Other API"]
     Providers -->|"SSE deltas, completion, safe errors"| API
     API --> Main
     Main --> Popup
@@ -47,15 +47,16 @@ flowchart TD
 | Endpoint | Implemented behavior |
 | --- | --- |
 | `GET /health` | Local service readiness |
-| `GET /v1/settings`, `PUT /v1/settings` | Provider/model settings without credentials |
-| `POST /v1/provider/test` | Short connectivity/model probe |
+| `GET /v1/settings`, `PUT /v1/settings` | Provider/model and optional custom base URL, without credentials; fresh state is `none` |
+| `POST /v1/provider/models` | Discover IDs from the selected provider without saving or selecting a model |
+| `POST /v1/provider/test` | Real short reply probe; return responding model and redacted reply preview |
 | `GET /v1/memory`, `PUT /v1/memory` | Bounded user-authored project, goal, and notes |
 | `GET /v1/history`, `DELETE /v1/history` | Read or clear the local answer cache |
 | `POST /v1/chat/stream` | Validate a mode request and stream an answer |
 
 `backend/modes.py` supplies educational prompts for the eight modes and automatic selection analysis. Requests may include a project description, explicitly selected saved notes, a mentor mood, and up to three preceding user/assistant exchanges.
 
-`backend/providers.py` implements Ollama and OpenAI-compatible adapters for LM Studio, Hugging Face, and OpenAI. Destinations are fixed, environment proxies and redirects are disabled. Generation has a 120-second total deadline alongside HTTP timeouts; connection probes have 15 seconds, below the desktop's 20-second request timeout. A connection-probe body or stream line is limited to 1 MiB, and a complete stream to 8 MiB, including ignored metadata. Providers receive `Accept-Encoding: identity`; unsolicited compressed responses are rejected before decompression. Interrupted streams, invalid or empty answers, response limits, filtering, and unsupported actions return safe failure messages. Model requests are not retried automatically.
+`backend/providers.py` implements Ollama and OpenAI-compatible adapters for LM Studio, Hugging Face, OpenAI, Groq, OpenRouter, Gemini, and Other API. Preset destinations are fixed. Custom URLs require public HTTPS on port 443, reject credentials/query/fragment, and resolve only to global addresses. Requests pin the resolved address while retaining the original Host and TLS server name; certificate validation remains enabled. Environment proxies and redirects are disabled. Generation has a 120-second total deadline alongside HTTP timeouts; discovery and connection probes have 15 seconds, below the desktop's 20-second request timeout. A connection-probe body or stream line is limited to 1 MiB, and a complete stream to 8 MiB, including ignored metadata. Providers receive `Accept-Encoding: identity`; unsolicited compressed responses are rejected before decompression. Interrupted streams, invalid or empty answers, response limits, filtering, and unsupported actions return safe failure messages. Model requests are not retried automatically.
 
 ## Response lifecycle
 
@@ -69,7 +70,7 @@ Diagnostics include the operation, exception type, and stack locations without e
 
 `backend/storage.py` stores settings and project notes in a `state` table and keeps up to 50 rows in `history`. Access uses a lock and transactions; new and existing database files are restricted to mode `0600` before SQLite opens them. Existing data is preserved. History input/output is redacted, including recognized credentials in quoted JSON fields and prefixed environment variable names. Redaction is heuristic; stored notes and history are not encrypted. History writes remain best effort: a failed write is diagnosed without discarding the delivered answer.
 
-Provider tokens are managed by `frontend/electron/keychain.ts` and `frontend/native/keychain.swift`. They are supplied to the authenticated backend only when needed and are not stored in SQLite or renderer storage. The selection helper reads external highlighted text following explicit user invocation; manual paste is also supported.
+Provider tokens are managed by `frontend/electron/keychain.ts` and `frontend/native/keychain.swift`. Custom endpoints use separate Keychain services identified by the full SHA-256 of the canonical base URL. Tokens are supplied to the authenticated backend only when needed and are not stored in SQLite or renderer storage. Unique key prefixes can suggest a provider after explicit discovery; ambiguous keys require a chosen destination. Saving tests the model first, writes settings, then saves the supplied key; a Keychain failure restores previous settings. Choosing `none` disables generation without deleting stored keys. The selection helper reads external highlighted text following explicit user invocation; manual paste is also supported.
 
 Electron enables context isolation and sandboxing, disables Node integration, restricts navigation/window opening, validates IPC inputs, and bounds custom-protocol asset paths. AI output is text with no execution or editor-write authority.
 

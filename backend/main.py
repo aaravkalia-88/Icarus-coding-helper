@@ -207,12 +207,15 @@ async def test_provider(request: ProviderTest):
     try:
         provider = get_provider(request.provider, request.base_url) if request.provider == "custom" else get_provider(request.provider)
         result = await provider.test(request.model, request.api_key)
-        if not result:
-            return {"status": "connected"}
+        if not isinstance(result, dict) or not isinstance(result.get("reply"), str) or not result["reply"].strip():
+            raise ProviderResponseError("empty")
         reply = result["reply"].replace(request.api_key, "[REDACTED CREDENTIAL]") if request.api_key else result["reply"]
         model = result.get("model")
-        return {"status": "connected", "model": model if isinstance(model, str) and MODEL_ID.fullmatch(model) else request.model,
-                "reply": redact(reply)[:160]}
+        if not isinstance(model, str) or not MODEL_ID.fullmatch(model) or (request.api_key and request.api_key in model) or redact(model) != model:
+            model = request.model
+        if (request.api_key and request.api_key in model) or redact(model) != model:
+            raise ProviderResponseError("invalid")
+        return {"status": "connected", "model": model, "reply": redact(reply)[:160]}
     except Exception as error:
         log_failure("Connection test", error)
         return {"status": "error", "message": provider_error(error)}
@@ -222,7 +225,9 @@ async def test_provider(request: ProviderTest):
 async def discover_models(request: ProviderDiscovery):
     try:
         provider = get_provider(request.provider, request.base_url) if request.provider == "custom" else get_provider(request.provider)
-        return {"status": "ok", "models": await provider.models(request.api_key)}
+        models = await provider.models(request.api_key)
+        return {"status": "ok", "models": [model for model in models
+                if not (request.api_key and request.api_key in model) and redact(model) == model]}
     except Exception as error:
         log_failure("Model discovery", error)
         return {"status": "error", "message": provider_error(error)}

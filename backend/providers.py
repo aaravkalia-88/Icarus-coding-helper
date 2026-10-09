@@ -61,6 +61,7 @@ async def public_endpoint(url: str):
     addresses = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
         raise ProviderResponseError("invalid")
+    return sorted(addresses, key=lambda item: item[0] != socket.AF_INET)[0][4][0]
 
 
 def model_ids(items, field="id"):
@@ -71,13 +72,19 @@ def model_ids(items, field="id"):
 
 
 @asynccontextmanager
-async def provider_response(method: str, url: str, seconds: float, **kwargs):
+async def provider_response(method: str, url: str, seconds: float, *, public_only=False, **kwargs):
     deadline = asyncio.get_running_loop().time() + seconds
     async with httpx.AsyncClient(
         timeout=TIMEOUT, trust_env=False, follow_redirects=False,
         headers={"Accept-Encoding": "identity"},
     ) as client:
         async with asyncio.timeout_at(deadline):
+            if public_only:
+                target = httpx.URL(url)
+                address = await public_endpoint(url)
+                kwargs["headers"] = {**kwargs.get("headers", {}), "Host": target.netloc.decode()}
+                kwargs["extensions"] = {"sni_hostname": target.host}
+                url = target.copy_with(host=address)
             response = await client.send(client.build_request(method, url, **kwargs), stream=True)
         try:
             response.raise_for_status()
@@ -201,20 +208,16 @@ class OpenAICompatibleProvider:
         self.custom = custom
 
     async def models(self, api_key: str | None):
-        if self.custom:
-            await public_endpoint(self.url)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         async with provider_response("GET", self.url.removesuffix("/chat/completions") + "/models",
-                                     PROBE_DEADLINE, headers=headers) as (response, deadline):
+                                     PROBE_DEADLINE, public_only=self.custom, headers=headers) as (response, deadline):
             payload = await response_json(response, deadline)
             return model_ids(payload.get("data"))
 
     async def test(self, model: str, api_key: str | None):
-        if self.custom:
-            await public_endpoint(self.url)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         limit = 'max_completion_tokens' if self.url.startswith('https://api.openai.com/') else 'max_tokens'
-        async with provider_response("POST", self.url, PROBE_DEADLINE, headers=headers, json={
+        async with provider_response("POST", self.url, PROBE_DEADLINE, public_only=self.custom, headers=headers, json={
             "model": model, "messages": [{"role": "user", "content": "Reply OK."}],
             "stream": False, limit: 256,
         }) as (response, deadline):
@@ -225,19 +228,19 @@ class OpenAICompatibleProvider:
             if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
                 raise ProviderResponseError("invalid")
             message = choices[0].get("message")
-            if not isinstance(message, dict) or not isinstance(message.get("content"), str) or not message["content"].strip():
+            if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+                raise ProviderResponseError("invalid")
+            if not message["content"].strip():
                 raise ProviderResponseError("empty")
             return {"model": payload.get("model", model), "reply": message["content"]}
 
     async def stream(self, messages: Messages, model: str, api_key: str | None) -> AsyncIterator[str]:
-        if self.custom:
-            await public_endpoint(self.url)
         if not self.local and not api_key:
             raise ValueError("Remote API key required")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         payload = {"model": model, "messages": messages, "stream": True}
         async with provider_response(
-            "POST", self.url, PROVIDER_DEADLINE, headers=headers, json=payload,
+            "POST", self.url, PROVIDER_DEADLINE, public_only=self.custom, headers=headers, json=payload,
         ) as (response, deadline):
             async for line in response_lines(response, deadline):
                 if not line.startswith("data:"):

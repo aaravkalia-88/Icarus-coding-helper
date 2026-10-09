@@ -35,6 +35,7 @@ class FixtureProvider:
     def __init__(self, name): self.name = name
     async def test(self, model, api_key):
         if api_key == 'rejected-fixture': raise ValueError('rejected')
+        return {'model': model, 'reply': 'OK'}
     async def stream(self, messages, model, api_key):
         with open(${JSON.stringify(requests)}, 'a') as record:
             record.write(json.dumps({'provider': self.name, 'model': model, 'messages': messages, 'has_key': bool(api_key), 'matches_fixture': api_key == ('fixture-openai-key' if self.name == 'openai' else 'fixture-token')}) + '\\n')
@@ -101,7 +102,7 @@ try {
   assert.equal((await main.evaluate(() => window.icarus.health())).status, 'ok')
   assert.equal(await app.evaluate(() => globalThis.icarusFixtureAccelerator), 'CommandOrControl+Shift+Q')
   assert.deepEqual(await main.evaluate(() => window.icarus.saveConnection(
-    { provider: 'huggingface', model: 'fixture-model' }, 'fixture-token')), { status: 'saved' },
+    { provider: 'huggingface', model: 'fixture-model' }, 'fixture-token')), { status: 'saved', model: 'fixture-model', reply: 'OK' },
     'a new supplied token connects even if an old Keychain entry cannot be read')
   const rejected = await main.evaluate(() => window.icarus.saveConnection(
     { provider: 'openai', model: 'other-model' }, 'rejected-fixture'))
@@ -153,7 +154,7 @@ try {
 
   await popup.getByRole('button', { name: 'Open app', exact: true }).click()
   assert.deepEqual(await main.evaluate(() => window.icarus.saveConnection(
-    { provider: 'openai', model: 'fixture-model' }, 'fixture-openai-key')), { status: 'saved' })
+    { provider: 'openai', model: 'fixture-model' }, 'fixture-openai-key')), { status: 'saved', model: 'fixture-model', reply: 'OK' })
   await main.evaluate(() => window.icarus.openPopup('fix_code'))
   await popup.getByLabel('Fix Code', { exact: true }).fill('const broken = 1')
   await popup.getByRole('button', { name: 'Run Fix Code', exact: true }).click()

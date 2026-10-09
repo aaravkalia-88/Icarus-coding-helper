@@ -21,15 +21,18 @@ function IcarusMark() {
 
 export function ProviderConnection() {
   const keyInput = useRef<HTMLInputElement>(null)
-  const [connection, setConnection] = useState<ConnectionSettings>({ provider: 'huggingface', model: 'Qwen/Qwen3.8-27B' })
-  const [savedProvider, setSavedProvider] = useState<ProviderName>('huggingface')
-  const [status, setStatus] = useState<'checking' | 'configured' | 'missing' | 'error' | 'not_needed'>('checking')
+  const [connection, setConnection] = useState<ConnectionSettings>({ provider: 'none', model: '' })
+  const [savedConnection, setSavedConnection] = useState<ConnectionSettings>({ provider: 'none', model: '' })
+  const [status, setStatus] = useState<'checking' | 'configured' | 'missing' | 'error' | 'not_needed' | 'unconfigured'>('checking')
+  const [models, setModels] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [feedbackError, setFeedbackError] = useState(false)
   const [editing, setEditing] = useState(false)
-  const remote = connection.provider === 'huggingface' || connection.provider === 'openai'
-  const names = { huggingface: 'Hugging Face', openai: 'OpenAI', ollama: 'Ollama', lm_studio: 'LM Studio' }
+  const remote = !['none', 'ollama', 'lm_studio'].includes(connection.provider)
+  const names: Record<ProviderName, string> = { none: 'No model selected', huggingface: 'Hugging Face', openai: 'OpenAI',
+    ollama: 'Ollama', lm_studio: 'LM Studio', groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Google Gemini', custom: 'Other API' }
+  const sameSavedEndpoint = connection.provider === savedConnection.provider && connection.base_url === savedConnection.base_url
 
   useEffect(() => {
     let active = true
@@ -39,7 +42,7 @@ export function ProviderConnection() {
         if (!active) return
         if (result?.status !== 'ok') throw new Error(result?.message || 'Open ICARUS desktop to configure your model.')
         setConnection(result.connection)
-        setSavedProvider(result.connection.provider)
+        setSavedConnection(result.connection)
         setStatus(result.keyStatus)
       } catch {
         if (active) { setStatus('error'); setFeedback('Could not read the saved connection. Check the local engine.'); setFeedbackError(true) }
@@ -57,18 +60,37 @@ export function ProviderConnection() {
     try {
       const result = await window.icarus?.saveConnection(connection, token)
       if (result?.status !== 'saved') throw new Error(result?.message || 'The desktop connection is unavailable.')
-      setStatus(remote ? 'configured' : 'not_needed'); setSavedProvider(connection.provider); setEditing(false)
-      setFeedback(remote ? 'Connection tested. Token saved in macOS Keychain for future sessions.' : 'Local model tested and saved.')
+      setStatus(connection.provider === 'none' ? 'unconfigured' : remote ? 'configured' : 'not_needed')
+      setSavedConnection(connection); setEditing(false)
+      setFeedback(connection.provider === 'none' ? 'No model selected. Choose a connection when you are ready.'
+        : `Connection successful: ${names[connection.provider]} · ${result.model}. Response: ${result.reply}`)
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Could not save the connection.'); setFeedbackError(true) }
     finally { setBusy(false) }
+  }
+
+  async function discover() {
+    const token = keyInput.current?.value.trim() || undefined
+    setBusy(true); setFeedback('Discovering models from your selected API…'); setFeedbackError(false)
+    try {
+      const result = await window.icarus?.discoverModels(connection, token)
+      if (result?.status !== 'ok') throw new Error(result?.message || 'The desktop connection is unavailable.')
+      setModels(result.models)
+      setConnection(current => ({ ...current, provider: result.provider,
+        model: current.provider === result.provider ? current.model : '' }))
+      if (token || result.provider !== savedConnection.provider) { setEditing(true); setStatus('missing') }
+      setFeedback(result.models.length ? `${names[result.provider]} detected. Found ${result.models.length} models. Choose one, then test and save.`
+        : 'This API returned no models. Enter its model ID manually, then test and save.')
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Could not discover models. Enter a model ID manually.'); setFeedbackError(true)
+    } finally { setBusy(false) }
   }
 
   async function testSaved() {
     setBusy(true); setFeedback('Testing the saved connection…'); setFeedbackError(false)
     try {
-      const result = await window.icarus?.testConnection(connection)
+      const result = await window.icarus?.testConnection(savedConnection)
       if (result?.status !== 'connected') throw new Error(result?.message || 'Could not test the connection.')
-      setFeedback('The selected model is responding.')
+      setFeedback(`Connection successful: ${names[savedConnection.provider]} · ${result.model}. Response: ${result.reply}`)
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Connection test failed.'); setFeedbackError(true) }
     finally { setBusy(false) }
   }
@@ -85,37 +107,61 @@ export function ProviderConnection() {
 
   return (
     <section className="provider-panel" aria-labelledby="provider-title">
-      <div className="engine-panel-top"><span className="panel-kicker">MODEL CONNECTION</span><span className="panel-local">{remote ? 'CLOUD API' : 'LOCAL SERVER'}</span></div>
+      <div className="engine-panel-top"><span className="panel-kicker">MODEL CONNECTION</span><span className="panel-local">{connection.provider === 'none' ? 'CHOOSE YOUR API' : remote ? 'CLOUD API' : 'LOCAL SERVER'}</span></div>
       <div className="provider-content">
         <h2 id="provider-title">{names[connection.provider]}</h2>
-        <p className="provider-description">{remote ? 'Your token stays in macOS Keychain. Submitted code and context go to your selected provider.' : 'Requests stay on this Mac. Start the local server before testing.'}</p>
-        <div className={`provider-status provider-status--${status}`} role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" />{status === 'checking' ? 'Reading connection…' : status === 'configured' ? 'Token saved' : status === 'not_needed' ? 'Local connection saved' : status === 'missing' ? 'Token needed' : 'Connection status unavailable'}</div>
+        <p className="provider-description">{connection.provider === 'none' ? 'Paste a key to detect its provider, or choose an API or local server. No model is chosen automatically.'
+          : remote ? 'Your token stays in macOS Keychain. Submitted code and context go to your selected provider.' : 'Requests stay on this Mac. Start the local server before testing.'}</p>
+        <div className={`provider-status provider-status--${status}`} role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" />{status === 'checking' ? 'Reading connection…' : status === 'configured' ? 'Saved connection' : status === 'not_needed' ? 'Local connection saved' : status === 'missing' ? 'Test this connection' : status === 'unconfigured' ? 'No active model' : 'Connection status unavailable'}</div>
         <form className="provider-form" onSubmit={event => void save(event)}>
           <label htmlFor="provider-name">Provider</label>
           <select id="provider-name" disabled={busy} value={connection.provider} onChange={event => {
             const provider = event.target.value as ProviderName
-            setConnection({ provider, model: '' }); setEditing(true); setFeedback('')
-            if (keyInput.current) keyInput.current.value = ''
-            setStatus('missing')
+            if (connection.provider !== 'none' && keyInput.current) keyInput.current.value = ''
+            setConnection({ provider, model: '', ...(provider === 'custom' ? { base_url: '' } : {}) })
+            setEditing(true); setFeedback(''); setModels([])
+            setStatus(provider === 'none' ? 'unconfigured' : 'missing')
           }}>
-            <option value="huggingface">Hugging Face</option><option value="openai">OpenAI</option><option value="ollama">Ollama — localhost:11434</option><option value="lm_studio">LM Studio — localhost:1234</option>
+            <option value="none">None — choose a provider or paste a key</option>
+            <option value="huggingface">Hugging Face</option><option value="openai">OpenAI</option>
+            <option value="groq">Groq</option><option value="openrouter">OpenRouter</option><option value="gemini">Google Gemini</option>
+            <option value="custom">Other API — OpenAI-compatible</option>
+            <option value="ollama">Ollama — localhost:11434</option><option value="lm_studio">LM Studio — localhost:1234</option>
           </select>
-          <label htmlFor="provider-model">Model ID</label>
-          <input id="provider-model" required maxLength={128} value={connection.model} disabled={busy} onChange={event => setConnection({ ...connection, model: event.target.value })} placeholder="Enter the model ID from your provider" autoComplete="off" spellCheck={false} />
+          {connection.provider === 'custom' && <>
+            <label htmlFor="provider-url">API base URL</label>
+            <input id="provider-url" type="url" required maxLength={2048} value={connection.base_url || ''} disabled={busy}
+              onChange={event => { setConnection({ ...connection, base_url: event.target.value, model: '' }); setModels([]); if (keyInput.current) keyInput.current.value = '' }}
+              placeholder="https://api.your-provider.com/v1" autoComplete="off" spellCheck={false} />
+            <p className="provider-description">Your key is sent only to this HTTPS API. It must support OpenAI-compatible models and chat completions.</p>
+          </>}
           {remote && status === 'configured' && !editing && <button className="provider-manage" type="button" onClick={() => setEditing(true)} disabled={busy}>Replace token</button>}
-          {remote && (editing || status !== 'configured') && <>
-            <label htmlFor="provider-key">{names[connection.provider]} API token</label>
+          {(connection.provider === 'none' || remote && (editing || status !== 'configured')) && <>
+            <label htmlFor="provider-key">{connection.provider === 'none' ? 'API key — detect its provider' : `${names[connection.provider]} API token`}</label>
             <input ref={keyInput} id="provider-key" type="password" autoComplete="off" spellCheck={false} maxLength={4096} disabled={busy} placeholder="Paste a new token; leave blank to keep a saved token" />
+            {status === 'missing' && <p className="provider-description">Paste your key if the saved token is unavailable after an app update.</p>}
             {editing && status === 'configured' && <button type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel token replacement</button>}
           </>}
+          <button type="button" disabled={busy || status === 'checking'} onClick={() => void discover()}>{busy ? 'Checking…' : 'Discover models'}</button>
+          {models.length > 0 && <>
+            <label htmlFor="provider-model-list">Available models</label>
+            <select id="provider-model-list" disabled={busy} value={models.includes(connection.model) ? connection.model : ''}
+              onChange={event => setConnection({ ...connection, model: event.target.value })}>
+              <option value="">Choose a model</option>{models.map(model => <option key={model} value={model}>{model}</option>)}
+            </select>
+          </>}
+          {connection.provider !== 'none' && <>
+            <label htmlFor="provider-model">Model ID</label>
+            <input id="provider-model" required maxLength={128} value={connection.model} disabled={busy} onChange={event => setConnection({ ...connection, model: event.target.value })} placeholder="Choose a discovered model or enter its ID" autoComplete="off" spellCheck={false} />
+          </>}
           <p className="provider-description">Testing sends a short “Reply OK” check. It does not send your code. Failed tests keep your previous connection.</p>
-          <button type="submit" disabled={busy || !connection.model.trim()}>{busy ? 'Connecting…' : 'Test & save connection'}</button>
+          <button type="submit" disabled={busy || status === 'checking' || connection.provider !== 'none' && !connection.model.trim()}>{busy ? 'Connecting…' : connection.provider === 'none' ? 'Use no model' : 'Test & save connection'}</button>
         </form>
         {feedback && <p className="provider-feedback" role={feedbackError ? 'alert' : 'status'}>{feedback}</p>}
       </div>
       <div className="engine-panel-bottom provider-bottom">
-        <button type="button" disabled={busy || !connection.model.trim()} onClick={() => void testSaved()}>Test saved connection</button>
-        {remote && status === 'configured' && connection.provider === savedProvider && <button type="button" onClick={() => void removeKey()} disabled={busy}>Remove token</button>}
+        <button type="button" disabled={busy || !savedConnection.model} onClick={() => void testSaved()}>Test saved connection</button>
+        {remote && status === 'configured' && sameSavedEndpoint && <button type="button" onClick={() => void removeKey()} disabled={busy}>Remove token</button>}
       </div>
     </section>
   )

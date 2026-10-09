@@ -2,7 +2,7 @@
 
 A macOS programming companion for the code in front of you. Open a mode from the animated library and workspace, or select text in another app and press **⌘⇧Q**. Answers stream into a desktop panel with Copy, Retry, Stop, and follow-up questions.
 
-Available modes: Hint Mode, Explain My Mistake, Improve Logic, Fix Code, Full Solve, Ask ICARUS, Explain Code, and Refactor. Project notes and recent answers stay in local storage. Connections support Hugging Face, OpenAI, Ollama, and LM Studio.
+Available modes: Hint Mode, Explain My Mistake, Improve Logic, Fix Code, Full Solve, Ask ICARUS, Explain Code, and Refactor. Project notes and recent answers stay in local storage. Connections support Hugging Face, OpenAI, Groq, OpenRouter, Google Gemini, Ollama, LM Studio, and other OpenAI-compatible APIs.
 
 See [the implemented architecture](ARC.md), [product plans](PRO.md), and [design guidance](DESIGN.md). Product and design documents also contain future ideas; the architecture describes current behavior.
 
@@ -26,7 +26,13 @@ Stop with **Ctrl+C** or `./stop.sh`. `./start_web.sh` and `./stop_web.sh` run on
 
 ## Connect a model
 
-Open Model connection, choose a provider and model ID, then use **Test & save connection**. Remote providers require a token; local servers must already be running. Tokens stay in macOS Keychain and are never returned to the renderer. Grant the selection helper Accessibility access in macOS settings to capture highlighted text, or paste code into the panel.
+New installations start with **None** and no model. Existing saved connections are preserved. In Model connection, paste a key and click **Discover models** to recognize supported key formats, or choose the provider yourself. Generic keys need an explicit provider; they are never tried against several services. Choose a discovered model or enter its ID, then use **Test & save connection**. A successful test displays the responding model and a short reply. Discovery alone does not select or save a model, and failed tests preserve your previous connection.
+
+**Other API** accepts an HTTPS base URL for OpenAI-compatible `/models` and `/chat/completions` endpoints. Credentials are scoped to that base URL. Private network addresses, URL credentials, query strings, fragments, and nonstandard ports are rejected; redirects and environment proxies are disabled. If an API does not offer model discovery, enter the model ID manually. APIs using other protocols require a dedicated adapter.
+
+Remote providers require a token; local servers must already be running. Saved tokens stay in macOS Keychain and are never returned to the renderer. Grant the selection helper Accessibility access in macOS settings to capture highlighted text, or paste code into the panel.
+
+If macOS blocks a token created by an older native helper, paste the key again and test/save it. Readable older tokens remain usable; blocked entries are treated as missing without opening a password dialog. Removing a token can require access to its older Keychain entries.
 
 Submitted code, explicitly selected project context, and follow-up exchanges go to the selected provider. Recognized secrets are redacted before remote requests, but redaction is best effort. The app displays AI output as text and does not execute generated code or automatically replace editor contents.
 
