@@ -82,6 +82,28 @@ def test_probe_returns_the_actual_reply_and_model_with_enough_budget_for_text(ap
     assert main.store.get("connection", {}) == {}
 
 
+def test_provider_metadata_cannot_return_the_supplied_key_to_the_renderer(api, monkeypatch):
+    def respond(request):
+        return httpx.Response(200, json={"data": [{"id": "fixture-token"}, {"id": "safe-model"}]}
+                              if request.method == "GET" else {"model": "fixture-token", "choices": [
+                                  {"message": {"content": "OK"}}]})
+    upstream(monkeypatch, respond)
+    target = {"provider": "groq", "api_key": "fixture-token"}
+    discovered = api.post("/v1/provider/models", headers=HEADERS, json=target)
+    assert discovered.json() == {"status": "ok", "models": ["safe-model"]}
+    tested = api.post("/v1/provider/test", headers=HEADERS, json={**target, "model": "safe-model"})
+    assert tested.json() == {"status": "connected", "model": "safe-model", "reply": "OK"}
+
+
+def test_connection_requires_a_real_reply_even_if_an_adapter_returns_nothing(api, monkeypatch):
+    class Provider:
+        async def test(self, *_):
+            return None
+    monkeypatch.setattr(main, "get_provider", lambda _: Provider())
+    response = api.post("/v1/provider/test", headers=HEADERS, json={"provider": "ollama", "model": "fixture"})
+    assert response.json()["status"] == "error"
+
+
 @pytest.mark.parametrize("status", [401, 429, 404])
 def test_discovery_failure_is_safe_and_keeps_the_previous_connection(api, monkeypatch, status):
     previous = {"provider": "openai", "model": "keep-me"}
