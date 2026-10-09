@@ -81,6 +81,7 @@ async def response_json(response, deadline):
 async def response_lines(response, deadline):
     pending = bytearray()
     skip_lf = False
+    loop = asyncio.get_running_loop()
     async for chunk in bounded_chunks(response, deadline, MAX_STREAM_BYTES):
         if not chunk:
             continue
@@ -88,6 +89,8 @@ async def response_lines(response, deadline):
             chunk = chunk[1:]
         skip_lf = chunk.endswith(b"\r")
         for line in chunk.splitlines(keepends=True):
+            if loop.time() >= deadline:
+                raise TimeoutError
             complete = line.endswith((b"\r", b"\n"))
             line = line.rstrip(b"\r\n") if complete else line
             if len(pending) + len(line) > MAX_LINE_BYTES:
