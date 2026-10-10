@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
 import { test } from 'node:test'
 import * as home from '../src/home-data.ts'
+import { optimizeKage } from '../scripts/scene-performance.mjs'
 
 const read = file => readFile(new URL(file, import.meta.url), 'utf8')
 const modeIds = ['hint', 'explain_mistake', 'logic_coach', 'fix_code', 'full_solve', 'ask_icarus', 'explain_code', 'refactor']
@@ -23,7 +24,7 @@ test('the authored scroll/Three.js program survives with ICARUS branding and san
   const expected = program(original).replace("const word = 'KAGE'", "const word = 'ICARUS'")
     .replace('const img = new Image();\n    img.onload', "const img = new Image();\n    img.crossOrigin = 'anonymous';\n    img.onload")
     .replace("const names = ['The Hidden Gate', 'The Sanmon', 'Still Gardens', 'Sacred Craft', 'Afterlight', 'Colophon'];", "const names = ['Welcome', 'Get started', 'Featured modes', 'All modes', 'Keep coding', 'Your workspace'];")
-  assert.ok(program(page) === expected, 'the authored program changes only branding, accessible section names, and image-origin declaration')
+  assert.equal(program(page), program(optimizeKage(`<script>\n${expected}</script>`)), 'the authored scene changes only app branding, sandbox compatibility, and rendering scheduling')
   assert.ok(page.includes('<span class="brand-tx"><b>ICARUS</b>'))
   assert.ok(page.includes('class="word-fb" aria-hidden="true">ICARUS'))
   assert.ok(!page.includes('buildIcarusWorld'))

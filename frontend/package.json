@@ -17,8 +17,10 @@
     "prepare:scene": "node scripts/prepare-scene.mjs",
     "predev": "npm run prepare:scene",
     "prebuild": "npm run prepare:scene",
+    "pretest": "npm run prepare:scene",
     "test:scene": "node scripts/verify-scene.mjs",
     "test:home": "node scripts/verify-home.mjs",
+    "test:performance": "node scripts/verify-performance.mjs",
     "test:modes": "node scripts/verify-mode-design.mjs",
     "test:popup": "node scripts/verify-popup.mjs"
   },

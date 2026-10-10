@@ -60,6 +60,7 @@ try {
   await check('authored section navigation advances the original camera rig', async () => {
     for (const [index, name] of ['Get started', 'Featured modes', 'All modes', 'Keep coding', 'Your workspace'].entries()) {
       await frame.getByRole('button', { name, exact: true }).click()
+      console.info(`Home QA: navigating to ${name}`)
       await frame.waitForFunction(i => Math.abs(window.__kage.RIG.prog - i) < .02, index + 1)
     }
     await frame.getByRole('button', { name: 'All modes', exact: true }).click()
@@ -91,7 +92,8 @@ try {
   })
   await check('narrow layout and authored reduced motion render', async () => {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('/index.html')).setContentSize(720, 850))
-    await frame.getByRole('button', { name: 'Welcome', exact: true }).click()
+    await frame.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }))
+    await frame.waitForFunction(() => window.__kage.RIG.smooth < .02)
     await screenshot('720')
     await main.emulateMedia({ reducedMotion: 'reduce' })
     await frame.getByRole('link', { name: 'Back to library', exact: true }).click()
@@ -106,6 +108,10 @@ try {
 } catch (error) {
   result.result = 'FAIL'
   result.failure = redact(error.message)
+  result.sceneState = await frame?.evaluate(() => ({ progress: window.__kage?.RIG.prog,
+    smooth: window.__kage?.RIG.smooth, rendering: window.__icarusRendering, hidden: document.hidden,
+    scroll: scrollY, anchors: window.__kage?.anchors(), height: innerHeight,
+    scrollHeight: document.documentElement.scrollHeight })).catch(() => null)
   process.exitCode = 1
 } finally {
   await app?.close().catch(() => {})

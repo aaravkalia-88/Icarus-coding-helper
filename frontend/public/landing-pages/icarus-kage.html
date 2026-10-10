@@ -1,6 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+<head><style id="icarus-render-style">html[data-icarus-rendering="paused"] *,html[data-icarus-rendering="paused"] *::before,html[data-icarus-rendering="paused"] *::after{animation-play-state:paused!important}</style><script id="icarus-render-lifecycle">(() => {
+  let parentActive = true;
+  let disposed = false;
+  const playing = new Set();
+  window.__icarusRendering = !document.hidden;
+  function sync() {
+    const active = parentActive && !document.hidden && !disposed;
+    document.documentElement.dataset.icarusRendering = active ? 'active' : 'paused';
+    if (active === window.__icarusRendering) return;
+    window.__icarusRendering = active;
+    if (!active) {
+      document.querySelectorAll('video').forEach(video => {
+        if (!video.paused) { playing.add(video); video.pause(); }
+      });
+    } else {
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        playing.forEach(video => { video.play()?.catch(() => {}); });
+      }
+      playing.clear();
+    }
+    dispatchEvent(new Event('icarus-render-state'));
+  }
+  addEventListener('message', event => {
+    if (event.source !== window.parent || event.data?.type !== 'icarus-render-state'
+      || typeof event.data.active !== 'boolean') return;
+    parentActive = event.data.active;
+    sync();
+  });
+  document.addEventListener('visibilitychange', sync);
+  addEventListener('pagehide', () => { disposed = true; sync(); playing.clear(); });
+  sync();
+})();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ICARUS — Where stillness reveals the unseen</title>
@@ -3840,7 +3872,7 @@ function createCloth(output, plate, options) {
   let raf = 0, last = performance.now(), debt = 0, running = false, visible = false, dead = false;
   function frame(now) {
     if (dead) return;
-    if (!visible) { running = false; return; }
+    if (!visible || !window.__icarusRendering || document.hidden) { running = false; return; }
     const delta = Math.min((now - last) / 1000, 1 / 20);
     last = now;
     const width = Math.max(wrapper.clientWidth, 1), height = Math.max(wrapper.clientHeight, 1);
@@ -3866,7 +3898,7 @@ function createCloth(output, plate, options) {
     raf = requestAnimationFrame(frame);
   }
   function start() {
-    if (dead || running || !visible) return;
+    if (dead || running || !visible || !window.__icarusRendering || document.hidden) return;
     running = true; last = performance.now(); raf = requestAnimationFrame(frame);
   }
 
@@ -3888,6 +3920,7 @@ function createCloth(output, plate, options) {
   wrapper.addEventListener('pointerleave', onLeave, { passive: true });
   const onHidden = () => { if (document.hidden) { running = false; cancelAnimationFrame(raf); } else start(); };
   document.addEventListener('visibilitychange', onHidden);
+  addEventListener('icarus-render-state', () => { running = false; cancelAnimationFrame(raf); start(); });
 
   syncSize(); upload(); compose(Math.max(wrapper.clientWidth, 1), Math.max(wrapper.clientHeight, 1));
   return { refresh(){ syncSize(); upload(); start(); }, wake: start,
@@ -4404,7 +4437,7 @@ function wireNav() {
     const b = document.createElement('button');
     b.innerHTML = '<i></i>'; b.title = names[i] || '';
     b.setAttribute('aria-label', names[i] || 'section');
-    b.addEventListener('click', () => scrollTo({ top: anchors[i], behavior: REDUCE ? 'auto' : 'smooth' }));
+    b.addEventListener('click', () => { measure(); scrollTo({ top: anchors[i], behavior: REDUCE ? 'auto' : 'smooth' }); });
     rail.appendChild(b);
   });
   const dots = $$('#rail button');
@@ -4480,7 +4513,7 @@ function wireCursor() {
   if (COARSE) { dot.style.display = 'none'; return; }
   let x = vpW() / 2, y = vpH() / 2, tx2 = x, ty = y;
   addEventListener('pointermove', e => {
-    tx2 = e.clientX; ty = e.clientY;
+    tx2 = e.clientX; ty = e.clientY; wakeCursor();
     RIG.tmx = (e.clientX / vpW()) * 2 - 1;
     RIG.tmy = -((e.clientY / vpH()) * 2 - 1);
   }, { passive: true });
@@ -4488,11 +4521,21 @@ function wireCursor() {
     el.addEventListener('mouseenter', () => dot.classList.add('act'));
     el.addEventListener('mouseleave', () => dot.classList.remove('act'));
   });
-  (function tick() {
+  let cursorFrame = 0;
+  function tick() {
+    cursorFrame = 0;
     x = lerp(x, tx2, .18); y = lerp(y, ty, .18);
     dot.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
-    requestAnimationFrame(tick);
-  })();
+    if (Math.abs(x - tx2) > .05 || Math.abs(y - ty) > .05) wakeCursor();
+    else { x = tx2; y = ty; dot.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)'; }
+  }
+  function wakeCursor() {
+    if (!cursorFrame && window.__icarusRendering && !document.hidden) cursorFrame = requestAnimationFrame(tick);
+  }
+  addEventListener('icarus-render-state', () => {
+    cancelAnimationFrame(cursorFrame); cursorFrame = 0; wakeCursor();
+  });
+  wakeCursor();
 }
 
 function makeGrain() {
@@ -4764,10 +4807,17 @@ function frame(now) {
   applyCamera();
   updateWorld(dt);
   render();
-  queue();
+  if (!REDUCE || fadeIn < 1 || RIG.intro < 1 || Math.abs(RIG.smooth - RIG.prog) > .0001
+    || Math.abs(RIG.mx - RIG.tmx) > .0001 || Math.abs(RIG.my - RIG.tmy) > .0001) queue();
 }
 const TIMER = qs('driver', 'raf') === 'timer';
-function queue() { TIMER ? setTimeout(() => frame(performance.now()), 16) : requestAnimationFrame(frame); }
+let sceneFrame = 0;
+function cancelSceneFrame() { TIMER ? clearTimeout(sceneFrame) : cancelAnimationFrame(sceneFrame); sceneFrame = 0; }
+function queue() {
+  if (sceneFrame || !running || !window.__icarusRendering || document.hidden) return;
+  const next = now => { sceneFrame = 0; frame(now); };
+  sceneFrame = TIMER ? setTimeout(() => next(performance.now()), 16) : requestAnimationFrame(next);
+}
 
 /* ======================================================== 14 · booting */
 const JOBS = [
@@ -4854,10 +4904,17 @@ function fallback(err) {
 function start() {
   addEventListener('resize', () => { resize(); }, { passive: true });
   addEventListener('orientationchange', () => setTimeout(resize, 250));
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { running = false; }
-    else if (!running) { running = true; tPrev = performance.now(); queue(); }
-  });
+  const syncRendering = () => {
+    cancelSceneFrame(); running = window.__icarusRendering && !document.hidden;
+    tPrev = performance.now(); if (running) queue();
+  };
+  addEventListener('icarus-render-state', syncRendering);
+  document.addEventListener('visibilitychange', syncRendering);
+  addEventListener('scroll', () => { measure(); queue(); }, { passive: true });
+  for (const event of ['pointermove', 'pointerover', 'pointerout', 'resize']) addEventListener(event, queue, { passive: true });
+  const layoutObserver = new ResizeObserver(() => { measure(); queue(); });
+  layoutObserver.observe(document.body);
+  addEventListener('pagehide', () => { layoutObserver.disconnect(); running = false; cancelSceneFrame(); renderer.dispose(); });
   resize();
 
   const shot = Q.get('shot');

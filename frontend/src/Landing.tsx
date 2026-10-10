@@ -5,16 +5,18 @@ import booksPage from '../public/landing-pages/icarus-bestsellers.html?raw'
 import { readEntryAction } from './entry-actions'
 import './Landing.css'
 import './Glass.css'
+import { useDocumentRendering } from './rendering-lifecycle'
 
 const Settings = lazy(() => import('./App'))
 const Models = lazy(() => import('./Models'))
 const Home = lazy(() => import('./Home'))
 type DialogKind = 'settings' | 'models'
 
-export function Scene() {
+export function Scene({ active = true }: { active?: boolean }) {
   return (
     <div className="shader-frame">
       <BestsellersBookShowcase
+        active={active}
         srcDoc={booksPage}
         headingFont="iowan-old-style"
         bodyFont="iowan-old-style"
@@ -47,6 +49,7 @@ function SettingsDialog({ kind, close }: { kind: DialogKind; close: () => void }
 }
 
 export default function Landing() {
+  useDocumentRendering()
   const host = useRef<HTMLDivElement>(null)
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [dialog, setDialog] = useState<DialogKind | null>(null)
@@ -90,7 +93,7 @@ export default function Landing() {
 
   return (
     <main ref={host} className={`icarus-landing icarus-landing--${phase}`} aria-label="ICARUS — Ignite your mind">
-      <Scene />
+      <Scene active={!dialog} />
       {phase === 'error' && <p className="scene-error" role="alert">The library could not load. Reload the window to try again.</p>}
       {dialog && <SettingsDialog kind={dialog} close={closeDialog} />}
     </main>

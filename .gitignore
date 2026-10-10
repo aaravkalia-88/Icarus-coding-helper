@@ -27,6 +27,8 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage/
+frontend/public/landing-pages/book-assets/
+frontend/public/landing-pages/icarus-glass.html
 *.tsbuildinfo
 *.log
 .DS_Store

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { withRenderingLifecycle } from './scene-performance.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const vendor = path.join(root, 'vendor/threeui')
@@ -108,6 +109,16 @@ parent.postMessage({type:'icarus-entry-ready'}, '*');
 </script>\n</body>`)
 const pages = path.join(root, 'public/landing-pages')
 await mkdir(pages, { recursive: true })
+const mediaDirectory = path.join(pages, 'book-assets')
+await mkdir(mediaDirectory, { recursive: true })
+for (const match of page.matchAll(/data:(image\/jpeg|video\/mp4);base64,([A-Za-z0-9+/=]+)/g)) {
+  const bytes = Buffer.from(match[2], 'base64')
+  const name = `${createHash('sha256').update(bytes).digest('hex')}.${match[1] === 'image/jpeg' ? 'jpg' : 'mp4'}`
+  await writeFile(path.join(mediaDirectory, name), bytes)
+  page = page.replace(match[0], `/landing-pages/book-assets/${name}`)
+}
+page = page.replace('!document.hidden &&', '!document.hidden && window.__icarusRendering &&')
+page = page.replace('document.addEventListener("visibilitychange", syncCoverMotion);', 'document.addEventListener("visibilitychange", syncCoverMotion);\n      window.addEventListener("icarus-render-state", syncCoverMotion);')
 await writeFile(path.join(pages, 'bestsellers-book-showcase.html'), original)
-await writeFile(path.join(pages, 'icarus-bestsellers.html'), page)
-console.info('Prepared ICARUS books from four hash-verified registered sources; six embedded covers and authored motion preserved.')
+await writeFile(path.join(pages, 'icarus-bestsellers.html'), withRenderingLifecycle(page))
+console.info('Prepared ICARUS books with six byte-exact external covers and rendering lifecycle support.')

@@ -94,6 +94,7 @@ export default function Home({ settings, archive, settingsOpen }: { settings: ()
     <div className="icarus-home">
       <div ref={host} className="home-kage-page" inert={settingsOpen || memoryOpen}>
         <KageLandingPage
+          active={!settingsOpen && !memoryOpen}
           headingFont="onest" bodyFont="onest" headingWeight="400" bodyWeight="300"
           primaryColor="#e0231c" headingSize={46} bodySize={17} headingLetterSpacing={-.012}
           srcDoc={world}

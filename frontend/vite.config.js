@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import { resolve } from 'path'
 
 function allowSceneAssets(server) {
-  for (const assets of ['/vendor/three', '/landing-pages/secret-pathways-assets']) {
+  for (const assets of ['/vendor/three', '/landing-pages/secret-pathways-assets', '/landing-pages/book-assets']) {
     server.middlewares.use(assets, (_request, response, next) => {
       response.setHeader('Access-Control-Allow-Origin', '*')
       next()

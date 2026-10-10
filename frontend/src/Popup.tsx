@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import type { ConversationTurn, GenerationEvent, GenerationOptions, ModeId, ModeResult, Mood } from './icarus'
 import { generationError } from './generation-errors'
 import './Popup.css'
+import { useDocumentRendering } from './rendering-lifecycle'
 
 const commands: { id: ModeId; label: string; symbol: string }[] = [
   { id: 'hint', label: 'Hint Mode', symbol: '✧' },
@@ -27,6 +28,7 @@ type Context = 'checking' | 'selected' | 'none' | 'unavailable'
 type Failure = Extract<ModeResult, { status: 'model_unavailable' | 'error' }>
 
 export default function Popup() {
+  useDocumentRendering()
   const [view, setView] = useState<View>('loading')
   const [context, setContext] = useState<Context>('checking')
   const [activeIndex, setActiveIndex] = useState(6)

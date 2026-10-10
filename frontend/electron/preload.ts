@@ -3,6 +3,20 @@ import type { GenerationEvent, HealthResult, Invocation, ModeId, ModeResult } fr
 import type { ConnectionSettings, GenerationOptions, ProjectMemory } from '../src/icarus'
 
 contextBridge.exposeInMainWorld('icarus', {
+  onRenderingState: (callback: (active: boolean) => void): (() => void) => {
+    if (typeof callback !== 'function') return () => {}
+    let received = false, disposed = false
+    const listener = (_event: Electron.IpcRendererEvent, active: unknown) => {
+      if (typeof active !== 'boolean' || disposed) return
+      received = true
+      callback(active)
+    }
+    ipcRenderer.on('icarus:render-state', listener)
+    void ipcRenderer.invoke('icarus:render-state').then(active => {
+      if (!received && !disposed && typeof active === 'boolean') callback(active)
+    }).catch(() => {})
+    return () => { disposed = true; ipcRenderer.removeListener('icarus:render-state', listener) }
+  },
   health: (): Promise<HealthResult> => ipcRenderer.invoke('icarus:health'),
   shortcutStatus: (): Promise<{ status: 'ready' | 'collision' } | { status: 'error'; message: string }> =>
     ipcRenderer.invoke('icarus:shortcut-status'),

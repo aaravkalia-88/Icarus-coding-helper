@@ -33,6 +33,7 @@ export type GenerationEvent = {
 declare global {
   interface Window {
     icarus?: {
+      onRenderingState: (callback: (active: boolean) => void) => () => void
       health: () => Promise<{ status: 'ok' | 'error'; message?: string }>
       shortcutStatus: () => Promise<{ status: 'ready' | 'collision' } | { status: 'error'; message: string }>
       openPopup: (mode?: ModeId) => Promise<{ status: 'ok' } | { status: 'error'; message: string }>

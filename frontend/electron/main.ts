@@ -341,6 +341,22 @@ export class BackendSupervisor {
   }
 }
 
+export function watchWindowRendering(window: Pick<import('electron').BrowserWindow,
+  'isVisible' | 'isMinimized' | 'on' | 'webContents'>): void {
+  let previous: boolean | undefined
+  const publish = (force = false) => {
+    const active = window.isVisible() && !window.isMinimized()
+    if (!force && active === previous) return
+    previous = active
+    window.webContents.send('icarus:render-state', active)
+  }
+  window.on('show', () => publish())
+  window.on('hide', () => publish())
+  window.on('minimize', () => publish())
+  window.on('restore', () => publish())
+  window.webContents.on('did-finish-load', () => publish(true))
+}
+
 export function loadRenderer(window: Pick<import('electron').BrowserWindow, 'loadURL'>,
   page: 'index.html' | 'popup.html', devURL?: string): Promise<void> {
   return window.loadURL(devURL ? new URL(page, devURL).toString() : `icarus://app/${page}`)
@@ -396,6 +412,7 @@ async function runElectron(): Promise<void> {
       const window = new BrowserWindow({
         ...popupSize,
         show: false,
+        paintWhenInitiallyHidden: false,
         frame: false,
         transparent: true,
         alwaysOnTop: true,
@@ -409,9 +426,13 @@ async function runElectron(): Promise<void> {
           contextIsolation: true,
           sandbox: true,
           webSecurity: true,
+          backgroundThrottling: true,
+          offscreen: false,
+          devTools: Boolean(devURL),
         },
       })
       popup = window
+      watchWindowRendering(window)
       window.on('blur', () => { if (!capturePending && !popupThinking) window.hide() })
       window.on('hide', () => {
         invocationVersion++
@@ -546,9 +567,13 @@ async function runElectron(): Promise<void> {
         contextIsolation: true,
         sandbox: true,
         webSecurity: true,
+        backgroundThrottling: true,
+        offscreen: false,
+        devTools: Boolean(devURL),
       },
     })
     mainWindow = window
+    watchWindowRendering(window)
     window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', event => event.preventDefault())
@@ -572,6 +597,10 @@ async function runElectron(): Promise<void> {
     } catch {
       return new Response('Not found', { status: 404 })
     }
+  })
+  ipcMain.handle('icarus:render-state', event => {
+    const window = fromWindow(event, mainWindow) ? mainWindow : fromWindow(event, popup) ? popup : undefined
+    return !!window && window.isVisible() && !window.isMinimized()
   })
   ipcMain.handle('icarus:health', event => {
     if (!fromWindow(event, mainWindow)) {

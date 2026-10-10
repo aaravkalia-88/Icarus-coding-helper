@@ -21,16 +21,14 @@ test('the complete registered book source remains byte exact', async () => {
   }
 })
 
-test('the authored styling, interaction program, and all six embedded covers stay intact', async () => {
+test('the authored styling and interaction program stay intact with lifecycle support', async () => {
   const original = await read('../vendor/threeui/public/landing-pages/bestsellers-book-showcase.html')
   const page = await entry()
   assert.equal(page.match(/<style>([\s\S]*?)<\/style>/)[1], original.match(/<style>([\s\S]*?)<\/style>/)[1])
   // Book descriptions are app content; everything after that data is the authored program.
   const program = html => html.match(/      const body = document.body;([\s\S]*?)<\/script>/)[1]
-  assert.equal(program(page), program(original))
-  const media = html => [...html.matchAll(/data:(?:image\/jpeg|video\/mp4);base64,[A-Za-z0-9+/=]+/g)].map(match => match[0])
-  assert.equal(media(page).length, 6)
-  assert.deepEqual(media(page), media(original))
+  assert.equal(program(page), program(original).replace('!document.hidden &&', '!document.hidden && window.__icarusRendering &&')
+    .replace('document.addEventListener("visibilitychange", syncCoverMotion);', 'document.addEventListener("visibilitychange", syncCoverMotion);\n      window.addEventListener("icarus-render-state", syncCoverMotion);'))
   for (const [book, action, label] of [['codex', 'settings', 'Settings'], ['claude', 'code', 'Let’s code'], ['cursor', 'models', 'Model connection']]) {
     assert.ok(page.includes(`data-book="${book}"\n        data-icarus-entry="${action}"\n        aria-label="${label}"`), label)
   }

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { useFrameRendering } from './rendering-lifecycle';
 
-import originalDocument from "../vendor/threeui/src/shaders/glass-ai-button/sources/glass-ai-button.html?raw";
+import originalDocument from "../public/landing-pages/icarus-glass.html?raw";
 
 // Adapt the application boundary and label; the authored renderer stays intact.
 const sourceDocument = originalDocument.replaceAll("GPT 6 Sol", "Open ICARUS")
@@ -14,7 +15,7 @@ export type GlassAiButtonProps = {
 };
 
 export function GlassAiButton({ onActivate, className = "", style }: GlassAiButtonProps) {
-  const hostRef = useRef<HTMLDivElement>(null);
+  const [hostRef, syncRendering] = useFrameRendering();
   const [documentVisible, setDocumentVisible] = useState(() => (
     typeof document === "undefined" || !document.hidden
   ));
@@ -33,7 +34,7 @@ export function GlassAiButton({ onActivate, className = "", style }: GlassAiButt
     }, { rootMargin: "80px" });
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [hostRef]);
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -43,19 +44,20 @@ export function GlassAiButton({ onActivate, className = "", style }: GlassAiButt
   }, []);
 
   useEffect(() => {
+    const host = hostRef.current;
     const receive = (event: MessageEvent) => {
-      if (event.source === hostRef.current?.querySelector("iframe")?.contentWindow
+      if (event.source === host?.querySelector("iframe")?.contentWindow
         && event.data?.type === "icarus-glass-activate") onActivate();
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [onActivate]);
+  }, [hostRef, onActivate]);
 
-  const mounted = hostVisible && documentVisible;
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    queueMicrotask(() => setReady(false));
-  }, [mounted]);
+    if (hostVisible && documentVisible) queueMicrotask(() => setMounted(true));
+  }, [hostVisible, documentVisible]);
 
   return (
     <div
@@ -63,7 +65,7 @@ export function GlassAiButton({ onActivate, className = "", style }: GlassAiButt
       className={`threeui-background glass-ai-button${className ? ` ${className}` : ""}`}
       role="group"
       aria-label="Open ICARUS with the glass button"
-      data-state={!mounted ? "paused" : ready ? "ready" : "loading"}
+      data-state={!hostVisible || !documentVisible ? "paused" : ready ? "ready" : "loading"}
       style={{
         position: "relative",
         overflow: "hidden",
@@ -78,7 +80,7 @@ export function GlassAiButton({ onActivate, className = "", style }: GlassAiButt
           srcDoc={sourceDocument}
           sandbox="allow-scripts"
           loading="eager"
-          onLoad={() => setReady(true)}
+          onLoad={() => { setReady(true); syncRendering(); }}
           style={{
             position: "absolute",
             inset: 0,

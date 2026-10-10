@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile, cp } from 'node:fs/promises'
 import path from 'node:path'
+import { optimizeKage, withRenderingLifecycle } from './scene-performance.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const vendor = path.join(root, 'vendor/threeui')
@@ -193,5 +194,5 @@ document.addEventListener('click', function(event) {
     : {type:'icarus-home-action',action:control.dataset.icarusAction}, '*');
 }, true);
 </script>\n</body>`)
-await writeFile(path.join(publicPages, 'icarus-kage.html'), page)
-console.info('Prepared the complete ICARUS Kage page from 22 hash-verified sources/assets; authored scroll animation preserved.')
+await writeFile(path.join(publicPages, 'icarus-kage.html'), withRenderingLifecycle(optimizeKage(page)))
+console.info('Prepared ICARUS Kage from 22 verified sources/assets with rendering lifecycle support.')

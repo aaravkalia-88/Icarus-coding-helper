@@ -1,13 +1,15 @@
 // The Kage export from the verified ThreeUI bundle, with ICARUS's frame title.
 // The complete registered LandingPages.tsx stays intact in vendor/threeui.
 import { useMemo } from 'react'
+import { useFrameRendering } from './rendering-lifecycle'
 import { PAGE_CUSTOMIZATION_BRIDGE, splitTypographyProps, usePageTypography, type PageTypographyProps } from '../vendor/threeui/src/shaders/landing-pages/pageTypography'
 import { LandingPageFrame, type LandingPageProps } from '../vendor/threeui/src/shaders/landing-pages/LandingPageFrame'
 import { KAGE_TYPOGRAPHY } from '../vendor/threeui/src/shaders/landing-pages/pageRecipes'
 
-export function KageLandingPage(props: LandingPageProps & PageTypographyProps) {
+export function KageLandingPage({ active = true, ...props }: LandingPageProps & PageTypographyProps & { active?: boolean }) {
+  const [host, syncRendering] = useFrameRendering(active);
   const [type, frame] = splitTypographyProps(props);
   const customization = usePageTypography(KAGE_TYPOGRAPHY, type);
   const srcDoc = useMemo(() => frame.srcDoc?.replace('</body>', `${PAGE_CUSTOMIZATION_BRIDGE.replace('var detail = event.data;', 'if (event.source !== window.parent) return;\n  var detail = event.data;')}\n</body>`), [frame.srcDoc]);
-  return <LandingPageFrame {...frame} srcDoc={srcDoc} customization={customization} title="ICARUS — Your coding workspace" sourceUrl="/landing-pages/kage.html" />;
+  return <div ref={host} style={{ width: '100%', height: '100%' }}><LandingPageFrame {...frame} srcDoc={srcDoc} customization={customization} applyScene={syncRendering} title="ICARUS — Your coding workspace" sourceUrl="/landing-pages/kage.html" /></div>;
 }
