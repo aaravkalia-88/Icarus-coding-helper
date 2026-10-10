@@ -17,6 +17,35 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FAKE_PYTHON = r'''
+import json, os, shutil, sys, time
+from pathlib import Path
+
+args = sys.argv[1:]
+with Path(os.environ["TEST_PYTHON_RECORD"]).open("a") as stream:
+    stream.write(json.dumps(args) + "\n")
+if args[:2] == ["-m", "venv"]:
+    exit_code = int(os.environ.get("TEST_VENV_EXIT_CODE", "0"))
+    if exit_code:
+        sys.exit(exit_code)
+    python = Path(args[2]) / "bin" / "python3"
+    python.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(__file__, python)
+elif args == ["-c", "import fastapi, httpx, uvicorn"]:
+    sys.exit(0 if Path(os.environ["TEST_DEPS_READY"]).exists() else 1)
+else:
+    assert args == ["-m", "pip", "install", "-r",
+                    str(Path(os.environ["TEST_RECORD"]).parent / "backend" / "requirements.txt")], args
+    exit_code = int(os.environ.get("TEST_PIP_EXIT_CODE", "0"))
+    if exit_code:
+        sys.exit(exit_code)
+    if os.environ.get("TEST_PIP_WAIT"):
+        Path(os.environ["TEST_WORKER"]).write_text(str(os.getpid()))
+        Path(os.environ["TEST_READY"]).touch()
+        time.sleep(60)
+    Path(os.environ["TEST_DEPS_READY"]).touch()
+'''
+
 FAKE_NPM = r'''
 import json, os, signal, subprocess, sys, time
 from pathlib import Path
@@ -63,11 +92,19 @@ class LaunchScriptsTest(unittest.TestCase):
         for name in ("start.sh", "stop.sh", self.start_script, self.stop_script):
             shutil.copy2(ROOT / name, self.project / name)
         (self.project / "frontend").mkdir()
+        (self.project / "backend").mkdir()
+        shutil.copy2(ROOT / "backend" / "requirements.txt", self.project / "backend")
         binaries = self.project / "bin"
         binaries.mkdir()
         npm = binaries / "npm"
         npm.write_text(f"#!{sys.executable}\n" + FAKE_NPM)
         npm.chmod(0o755)
+        python = binaries / "python3"
+        python.write_text(f"#!{sys.executable}\n" + FAKE_PYTHON)
+        python.chmod(0o755)
+        self.python_record = self.project / "python.jsonl"
+        self.deps_ready = self.project / "deps-ready"
+        self.deps_ready.touch()
         self.pid_file = self.project / self.pid_name
         self.record = self.project / "launches.jsonl"
         self.worker = self.project / "worker.pid"
@@ -79,7 +116,11 @@ class LaunchScriptsTest(unittest.TestCase):
             "TEST_WORKER": str(self.worker),
             "TEST_READY": str(self.ready),
             "TEST_NPM_ARGS": json.dumps(self.npm_args),
+            "TEST_PYTHON_RECORD": str(self.python_record),
+            "TEST_DEPS_READY": str(self.deps_ready),
         }
+        self.env.pop("ICARUS_PYTHON", None)
+        self.env.pop("VIRTUAL_ENV", None)
         self.processes = []
 
     def tearDown(self):
@@ -143,14 +184,14 @@ class LaunchScriptsTest(unittest.TestCase):
         self.env.pop("VIRTUAL_ENV", None)
         python = self.project / ".venv" / "bin" / "python3"
         for label, override, active, expected in (
-            ("system fallback", None, None, None),
+            ("missing project environment", None, None, str(python)),
             ("project environment", None, None, str(python)),
             ("explicit interpreter", "/fixture/custom-python", None, "/fixture/custom-python"),
             ("activated environment", None, "/fixture/active-venv", None),
         ):
             with self.subTest(label=label):
                 if label == "project environment":
-                    python.parent.mkdir(parents=True)
+                    python.parent.mkdir(parents=True, exist_ok=True)
                     python.write_text("#!/bin/sh\nexit 0\n")
                     python.chmod(0o755)
                 self.env.pop("ICARUS_PYTHON", None)
@@ -159,6 +200,7 @@ class LaunchScriptsTest(unittest.TestCase):
                     self.env["ICARUS_PYTHON"] = override
                 if active:
                     self.env["VIRTUAL_ENV"] = active
+                self.python_record.unlink(missing_ok=True)
                 process = self.start("exit")
                 output, _ = process.communicate(timeout=5)
                 self.assertEqual(process.returncode, 0, output)
@@ -166,6 +208,63 @@ class LaunchScriptsTest(unittest.TestCase):
                     expected = override
                 record = json.loads(self.record.read_text().splitlines()[-1])
                 self.assertEqual(record["python"], expected)
+                if override or active or self.start_script == "start_web.sh":
+                    self.assertFalse(self.python_record.exists())
+
+    def test_missing_backend_dependencies_are_installed_only_for_desktop(self):
+        for existing in (False, True):
+            with self.subTest(existing_environment=existing):
+                python = self.project / ".venv" / "bin" / "python3"
+                if existing:
+                    python.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(self.project / "bin" / "python3", python)
+                self.deps_ready.unlink(missing_ok=True)
+                self.python_record.unlink(missing_ok=True)
+                process = self.start("exit")
+                output, _ = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 0, output)
+                if self.start_script == "start_web.sh":
+                    self.assertFalse(self.python_record.exists())
+                    continue
+                self.assertTrue(self.python_record.exists(), "Desktop never checked or installed backend dependencies")
+                calls = [json.loads(row) for row in self.python_record.read_text().splitlines()]
+                expected = [["-c", "import fastapi, httpx, uvicorn"],
+                            ["-m", "pip", "install", "-r", str(self.project / "backend" / "requirements.txt")]]
+                if not existing:
+                    expected.insert(0, ["-m", "venv", str(self.project / ".venv")])
+                self.assertEqual(calls, expected)
+                self.assertEqual(json.loads(self.record.read_text().splitlines()[-1])["python"], str(python))
+                self.python_record.unlink()
+                process = self.start("exit")
+                output, _ = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 0, output)
+                self.assertEqual(json.loads(self.python_record.read_text()), expected[-2])
+
+    def test_failed_python_setup_does_not_launch_desktop_or_leave_a_pid(self):
+        self.deps_ready.unlink()
+        for variable in ("TEST_VENV_EXIT_CODE", "TEST_PIP_EXIT_CODE"):
+            with self.subTest(failure=variable):
+                self.env[variable] = "23"
+                process = self.start("exit")
+                output, _ = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 0 if self.start_script == "start_web.sh" else 23, output)
+                self.assertEqual(self.record.exists(), self.start_script == "start_web.sh")
+                self.assertFalse(self.pid_file.exists())
+                self.env.pop(variable)
+
+    def test_stop_can_cancel_python_dependency_setup(self):
+        self.deps_ready.unlink()
+        self.env["TEST_PIP_WAIT"] = "1"
+        process = self.start()
+        self.wait_until(self.ready.exists)
+        worker_pid = int(self.worker.read_text())
+        self.assertEqual(self.record.exists(), self.start_script == "start_web.sh")
+        result = self.stop()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 143)
+        self.assertFalse(running(worker_pid))
+        self.assertFalse(self.pid_file.exists())
 
     def test_stop_is_repeatable_and_stops_descendants(self):
         process = self.start()
