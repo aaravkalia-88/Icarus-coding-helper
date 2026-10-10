@@ -22,7 +22,7 @@ cd ..
 ./start.sh
 ```
 
-The launcher builds the renderer, Electron shell, and Swift helpers. Electron starts its own authenticated local Python service. `start.sh` uses the project's `.venv/bin/python3` when available, preserves an already active Python environment, and honors `ICARUS_PYTHON` when you set it explicitly. Otherwise it uses `python3` from your PATH.
+The launcher builds the renderer, Electron shell, and Swift helpers. Electron starts its own authenticated local Python service. Unless you activate a Python environment or set `ICARUS_PYTHON` explicitly, `start.sh` creates the project's `.venv` when needed, installs missing backend dependencies from `backend/requirements.txt`, and uses `.venv/bin/python3`. Creating the environment requires `python3` on your PATH; installing dependencies requires access to your configured Python package index. Explicit interpreters and active environments must already have the backend requirements installed.
 
 Stop with **Ctrl+C** or `./stop.sh`. `./start_web.sh` and `./stop_web.sh` run only the browser UI on localhost. Native shortcuts, selection capture, Keychain, and model requests require the desktop app.
 
@@ -43,7 +43,7 @@ The Python service accepts authenticated request bodies up to 2 MiB and marks AP
 ## Verification
 
 ```sh
-python -m pytest backend tests -q
+.venv/bin/python3 -m pytest backend tests -q
 cd frontend
 npm test
 npm run typecheck
@@ -52,6 +52,8 @@ npm run build
 ```
 
 Tests use local server fixtures and Swift Security API fixtures; the Keychain fixture does not use real credentials. Launcher tests need permission to inspect and stop their own processes.
+
+If a backend test reports `ModuleNotFoundError: No module named 'httpx'`, install the requirements with `.venv/bin/python3 -m pip install -r backend/requirements.txt` and run it through pytest, for example `.venv/bin/python3 -m pytest backend/test_connection_cache.py -q`, from the project root. Set your editor's Python interpreter to `.venv/bin/python3` too.
 
 Optional browser QA requires Playwright and Chrome. Install Playwright in the development environment, or set `ICARUS_PLAYWRIGHT_MODULE` to its module path, then run:
 

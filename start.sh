@@ -29,11 +29,6 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 127
 fi
 
-if [[ "${1:-}" != --web && -z "${ICARUS_PYTHON:-}" && -z "${VIRTUAL_ENV:-}" &&
-      -x "$SCRIPT_DIR/.venv/bin/python3" ]]; then
-  export ICARUS_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
-fi
-
 is_pid() {
   # Reject PID 0 (the current process group), PID 1, signs, and leading zeros.
   [[ "$1" =~ ^[1-9][0-9]*$ && "$1" != 1 ]]
@@ -106,7 +101,20 @@ set -m
 if [[ "${1:-}" == --web ]]; then
   echo "Starting Icarus web at http://localhost:5173. Use Ctrl+C or ./stop_web.sh to stop."
 fi
-npm "${npm_args[@]}" &
+(
+  if [[ "${1:-}" != --web && -z "${ICARUS_PYTHON:-}" && -z "${VIRTUAL_ENV:-}" ]]; then
+    if [[ ! -x "$SCRIPT_DIR/.venv/bin/python3" ]]; then
+      echo "Creating Icarus Python environment..."
+      python3 -m venv "$SCRIPT_DIR/.venv"
+    fi
+    export ICARUS_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+    if ! "$ICARUS_PYTHON" -c 'import fastapi, httpx, uvicorn' >/dev/null 2>&1; then
+      echo "Installing Icarus backend dependencies..."
+      "$ICARUS_PYTHON" -m pip install -r "$SCRIPT_DIR/backend/requirements.txt"
+    fi
+  fi
+  exec npm "${npm_args[@]}"
+) &
 app_pid=$!
 
 # Keep the real npm exit code while allowing EXIT cleanup after a failed build.
